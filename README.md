@@ -1,19 +1,14 @@
 # LFJ Resume — Solo Leveling Style
 
-An interactive, multi-page resume for **Low Fang Jun**, styled after the "Solo Leveling" hunter status UI (neon purple/blue, cyber fonts, grid background). Built as static HTML/CSS with Tailwind CSS (via CDN) — no build step, no framework, no dependencies to install.
+A 4-page portfolio site for **Low Fang Jun**, styled after the "Solo Leveling" hunter status UI (neon purple/blue, cyber fonts, grid background). Built as static HTML/CSS with Tailwind CSS (via CDN) — no build step, no framework, no dependencies to install.
 
 ## Pages
 
 | Page | File | Content |
 |---|---|---|
-| Home | [index.html](index.html) | Landing page with cards linking to every section |
-| Status | [status.html](status.html) | Profile, contact info, education, skills |
-| Matrix | [matrix.html](matrix.html) | Leadership metrics and core attributes |
-| Quests | [quests.html](quests.html) | Academic quests, projects, achievements |
-| Events | [events.html](events.html) | Event organization and leadership records |
-| Experience | [experience.html](experience.html) | Work experience, role by role |
-| Inventory | [inventory.html](inventory.html) | Awards, certifications, skill inventory |
-| Gallery | [gallery.html](gallery.html) | Event, project, and personal photos (currently placeholder slots — see below) |
+| Home | [index.html](index.html) | Cinematic hero (photo background + mouse-parallax tilt), name/role tagline, quick-facts strip |
+| Resume | [resume.html](resume.html) | Combined resume — Profile, Matrix, Quests, Events, Experience, Inventory sections with a sticky in-page sub-nav |
+| Gallery | [gallery.html](gallery.html) | Firebase-backed photo gallery — public photos are visible to everyone; a Private section and an upload form appear after signing in (see below) |
 | Contact | [contact.html](contact.html) | Email / phone / location, with a one-click "send message" CTA |
 
 ## Running locally
@@ -27,16 +22,20 @@ npx serve .
 ## Tech stack
 
 - HTML5 + [Tailwind CSS](https://tailwindcss.com/) (loaded via CDN, configured inline in each page's `<script>` block)
+- [Chart.js](https://www.chartjs.org/) (loaded via CDN on `resume.html`) for the Matrix section's charts
 - [Font Awesome 6](https://fontawesome.com/) for icons
 - Google Fonts: Orbitron (cyber headings), Fira Code (code/labels), Inter (body text)
-- Shared custom styles in [styles.css](styles.css) (neon borders/glow, grid background, scrollbar)
+- [Firebase](https://firebase.google.com/) (Auth, Firestore, Storage) on `gallery.html`, loaded as ES modules straight from `gstatic.com` — no npm install, no bundler
+- Shared custom styles in [styles.css](styles.css) (neon borders/glow, grid background, scrollbar, hero parallax layer)
+- Shared behavior in [scripts.js](scripts.js) (scroll-reveal animations + the hero mouse-parallax tilt on `index.html`)
 
-## Adding real photos to the Gallery
+## Gallery: Firebase-backed photos
 
-[gallery.html](gallery.html) currently shows dashed placeholder tiles grouped into three categories (Event & Work, Project Screenshots, Personal), each labeled with the filename it expects (e.g. `events-1.jpg`). To fill them in:
+`gallery.html` no longer hardcodes `<img>` tags. [firebase-init.js](firebase-init.js) sets up the Firebase app/auth/Firestore/Storage handles (reused by any future page that needs login), and [gallery.js](gallery.js) handles sign-in, renders public photos from the `photos` Firestore collection into the three category grids, reveals a Private section + upload form once signed in as the owner (`jjun8647@gmail.com`, see `OWNER_EMAIL` in `firebase-init.js`), and lets the owner upload new photos (file → Storage, metadata → Firestore) straight from the page.
 
-1. Drop image files into the [images/](images/) folder using those filenames (or your own).
-2. Replace the matching placeholder `<div>` in gallery.html with an `<img src="images/your-file.jpg" class="aspect-square rounded-xl object-cover" alt="...">`.
+Access to private photos beyond the owner is controlled by an `allowedUsers` Firestore collection (doc ID = lowercase email) — inviting someone is just adding a document in the Firebase Console, no code changes needed. [firestore.rules](firestore.rules) and [storage.rules](storage.rules) are the source of truth for this access model; paste them into the Firebase Console's Rules tabs after any change (there's no Firebase CLI/deploy step wired up — keeping the "no build tools" philosophy).
+
+Because photos are fetched at runtime, the gallery grids are empty until the owner signs in and uploads through the on-page form.
 
 ## Structure notes
 

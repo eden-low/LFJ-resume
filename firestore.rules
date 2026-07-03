@@ -1,0 +1,17 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /photos/{photoId} {
+      allow read: if resource.data.visibility == 'public'
+                  || (request.auth != null && (
+                       request.auth.token.email == 'jjun8647@gmail.com'
+                       || exists(/databases/$(database)/documents/allowedUsers/$(request.auth.token.email))
+                     ));
+      allow write: if request.auth != null && request.auth.token.email == 'jjun8647@gmail.com';
+    }
+    match /allowedUsers/{email} {
+      allow read: if false;
+      allow write: if request.auth != null && request.auth.token.email == 'jjun8647@gmail.com';
+    }
+  }
+}
