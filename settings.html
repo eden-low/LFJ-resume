@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <script>(function(){try{var s=JSON.parse(localStorage.getItem('lfj:settings')||'{}');if(s.theme==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
@@ -56,6 +56,7 @@
         <a href="habits.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-list-check text-xs"></i> Habits</a>
         <a href="calendar.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-calendar-days text-xs"></i> Calendar</a>
         <a href="reports.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-chart-pie text-xs"></i> Reports</a>
+        <a href="ai.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-robot text-xs"></i> AI</a>
         <a href="dashboard.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-chart-line text-xs"></i> Dashboard</a>
         <a href="notifications.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-bell text-xs"></i> Notifications <span id="notif-badge" class="hidden px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[9px] font-bold"></span></a>
         <a href="contact.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-envelope text-xs"></i> Contact</a>
@@ -92,6 +93,15 @@
           <span class="text-textGray">Last sign-in</span>
           <span id="profile-last-login" class="font-medium">&mdash;</span>
         </div>
+      </div>
+      <div class="mt-5 pt-5 border-t border-borderNeon/40">
+        <label for="username-input" class="text-xs text-textGray block mb-1.5">Username <span class="text-textGray/60">&mdash; lets people find you by @handle in Search People instead of email</span></label>
+        <div class="flex items-center gap-2">
+          <span class="text-textGray font-code">@</span>
+          <input id="username-input" type="text" maxlength="20" placeholder="yourhandle" class="flex-1 bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-sm text-white placeholder:text-textGray/60 font-code">
+          <button id="save-username-btn" class="px-4 py-2 bg-neonPurple/15 text-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider hover:bg-neonPurple/25 transition-colors">SAVE</button>
+        </div>
+        <p id="username-status" class="mt-2 text-xs font-code text-textGray"></p>
       </div>
       <button id="signout-btn" class="mt-5 px-4 py-2 bg-cardBg/70 border border-borderNeon rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:border-rose-400 hover:text-rose-400 transition-all">
         <i class="fa-solid fa-arrow-right-from-bracket mr-1.5"></i> SIGN OUT

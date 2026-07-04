@@ -92,6 +92,17 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.uid == uid && request.resource.data.uid == uid;
     }
 
+    // Reservation doc per @username, doc ID = the lowercase handle itself — "first writer
+    // wins" comes for free from Firestore's create-vs-update distinction (the `allow create`
+    // rule only ever fires when no doc with that ID exists yet; a rename deletes the old
+    // reservation and creates a new one, it never updates one in place).
+    match /usernames/{username} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow update: if false;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
     match /login_logs/{logId} {
       allow read: if isOwner();
       allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;

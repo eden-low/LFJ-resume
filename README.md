@@ -1,6 +1,6 @@
 # Personal OS — Dark Glass System Dashboard
 
-A 14-page **login-first**, **multi-tenant** personal system ("Personal OS") built around **Low Fang Jun**, styled as a dark glassmorphism "system dashboard" (near-black canvas, translucent blurred cards, a single soft violet accent, Apple system fonts). The owner and any number of approved "friends" each get their own private expenses/journal/photos/timeline/habits space, isolated by Firebase Auth `uid`; anyone else who signs in is a read-only Viewer limited to public content. Every page requires Google sign-in via `login.html` before it renders — see [Login gate](#login-gate-auth-guardjs--loginhtml) below. Built as static HTML/CSS with Tailwind CSS (via CDN) — no build step, no framework, no dependencies to install. Installable as a PWA (`manifest.json` + `service-worker.js`, real `images/icon-192.png`/`icon-512.png` app icons) with offline shell caching.
+A 16-page **login-first**, **multi-tenant** personal system ("Personal OS") built around **Low Fang Jun**, styled as a dark glassmorphism "system dashboard" (near-black canvas, translucent blurred cards, a single soft violet accent, Apple system fonts). The owner and any number of approved "friends" each get their own private expenses/journal/photos/timeline/habits space, isolated by Firebase Auth `uid`; anyone else who signs in is a read-only Viewer limited to public content. Every page requires Google sign-in via `login.html` before it renders — see [Login gate](#login-gate-auth-guardjs--loginhtml) below. Built as static HTML/CSS with Tailwind CSS (via CDN) — no build step, no framework, no dependencies to install. Installable as a PWA (`manifest.json` + `service-worker.js`, real `images/icon-192.png`/`icon-512.png` app icons) with offline shell caching.
 
 ## Roles
 
@@ -24,10 +24,12 @@ Nobody is ever signed out or blocked at login — everyone gets in, access just 
 | Habits | [habits.html](habits.html) | Habit tracker — daily check-ins, streaks, a 7-day weekly strip, and a monthly completion ring per habit |
 | Calendar | [calendar.html](calendar.html) | Monthly 7-column grid of your own expenses/photos/journal entries, bucketed by day |
 | Reports | [reports.html](reports.html) | Monthly recap of your own activity — total spend, top category, weekday-vs-weekend spending comparison, photo/journal counts |
-| Dashboard | [dashboard.html](dashboard.html) | Read-only analytics of your own Gallery/Expenses/Journal activity, plus **Search People** to browse another signed-in user's public content |
+| AI Assistant | [ai.html](ai.html) | Chat interface backed by Google's Gemini API — natural-language function calling to log expenses (e.g. "spent RM12 on lunch") directly into your Expenses collection |
+| Dashboard | [dashboard.html](dashboard.html) | Read-only analytics of your own Gallery/Expenses/Journal activity, plus **Search People** to find another signed-in user by name/@username/email |
+| Profile | [profile.html](profile.html) | Read-only IG-style profile (`?uid=`) opened from Search People — avatar/name/@username, public-activity stats, and a public photo grid you can like/comment on but not edit. Not in the nav — only reachable via a search result, same as `login.html` |
 | Notifications | [notifications.html](notifications.html) | Your own notification center — login/expense/journal/habit/gallery alerts, unread badge in the nav, mark-as-read |
 | Contact | [contact.html](contact.html) | Email / phone / location, with a one-click "send message" CTA |
-| Settings | [settings.html](settings.html) | Profile, preferences, Export & Backup (any signed-in user), and — owner-only — login history and Whitelist Friend Management |
+| Settings | [settings.html](settings.html) | Profile (incl. setting a unique @username), preferences, Export & Backup (any signed-in user), and — owner-only — login history and Whitelist Friend Management |
 
 ## Running locally
 
@@ -63,7 +65,7 @@ The site moved from a neon-cyber "hunter status" look to a dark glassmorphism da
 
 Every content collection (`expenses`, `journals`, `photos`, `life_events`, `habits`) is scoped by a `uid` field identifying its creator. The core fetch pattern, used identically across Gallery/Journal/Timeline/Habits: two Firestore queries merged by doc ID — `where("uid","==",myUid)` (all of *my* docs, any visibility) plus `where("visibility","==","public")` (everyone's public docs). Expenses skip the public half entirely (always private, no visibility concept). Every "New X" button and write is gated by `canParticipate()` (Owner or Friend) rather than a global owner check, and every new doc is written with `uid: auth.currentUser.uid`.
 
-`friends/{email}` (Settings' Whitelist — Friend Management) grants Friend status; `users/{uid}` is a lightweight directory doc upserted on every login, powering Dashboard's **Search People** (find another signed-in user, view only their public content). [firestore.rules](firestore.rules) and [storage.rules](storage.rules) are the source of truth for all of this; after editing either, deploy with `npx firebase-tools deploy --only firestore:rules,storage` (see [firebase.json](firebase.json)/[.firebaserc](.firebaserc) — a dev-only CLI tool, the site itself stays buildless).
+`friends/{email}` (Settings' Whitelist — Friend Management) grants Friend status; `users/{uid}` is a lightweight directory doc upserted on every login (now also carrying a public `role` field and an optional `username`), powering Dashboard's **Search People**. `usernames/{username}` is a one-doc-per-handle reservation collection (doc ID = the handle) that makes unique @usernames possible without a backend — Firestore's create-vs-update distinction means "claim if free" falls out of a plain `create` rule with no matching `update` rule. [firestore.rules](firestore.rules) and [storage.rules](storage.rules) are the source of truth for all of this; after editing either, deploy with `npx firebase-tools deploy --only firestore:rules,storage` (see [firebase.json](firebase.json)/[.firebaserc](.firebaserc) — a dev-only CLI tool, the site itself stays buildless).
 
 ## Gallery: Instagram-style feed with social features
 
@@ -77,6 +79,10 @@ All four follow the same shape: your own entries (any visibility) plus everyone'
 
 [calendar.js](calendar.js) renders a monthly grid of your own expenses/photos/journal entries bucketed by day (fetched in full per collection, filtered client-side to the visible month — avoids needing a composite index for an equality-plus-date-range query). [insights.js](insights.js) computes a current-month recap: total spend, top category, a weekday-vs-weekend average-spend comparison with a warning banner, and photo/journal counts.
 
+## AI Assistant
+
+[ai.html](ai.html) / [ai-agent.js](ai-agent.js) is a chat interface backed by Google's Gemini API (`@google/genai`, loaded from jsDelivr's ESM CDN build — no npm install). It's configured with one native tool, `addExpense`, so a message like "spent RM12 on lunch" gets logged straight into the same `expenses` collection every other page reads, without opening a form. **Requires your own Gemini API key** — set `GEMINI_API_KEY` in `ai-agent.js` before this page will work; treat it as sensitive, since a leaked key is directly billable (unlike this app's other hardcoded client-side keys). Expense-logging is gated by `canParticipate()` like every other write in the app.
+
 ## Notifications
 
 Each user sees only their own notifications ([notifications.js](notifications.js)). Every alert is self-written by whichever client observed the triggering condition — a login alert from `login.html`, a spending alert from `expenses.js` (RM1000/month threshold), a journal reminder from `journal.js` (3+ days quiet), a habit-streak alert from `habits.js` (30/60/90-day milestones), and a "someone liked your photo" alert from `gallery.js`. Deduped via `localStorage` checkpoints per condition. [auth-guard.js](auth-guard.js) lights up an unread badge next to the nav's Notifications link.
@@ -87,7 +93,7 @@ Available to any signed-in user from Settings ([export.js](export.js)) — downl
 
 ## Dashboard: read-only analytics + Search People
 
-[dashboard.js](dashboard.js) computes Gallery/Expense/Journal analytics from your own data only (no cross-user aggregation). **Search People** fetches the `users` directory, lets you search by name/email, and shows a read-only summary of another signed-in user's public activity.
+[dashboard.js](dashboard.js) computes Gallery/Expense/Journal analytics from your own data only (no cross-user aggregation). **Search People** fetches the `users` directory, lets you search by name/@username/email, and — filtered by role (a Viewer only finds the Owner; a Friend or the Owner finds the Owner and any Friend) — links each result to [profile.html](profile.html), a dedicated read-only profile page with a public photo grid (like/comment, no edit) instead of an inline summary card.
 
 ## Settings
 

@@ -1,4 +1,4 @@
-import { auth, googleProvider, db } from "./firebase-init.js";
+import { auth, googleProvider, db, getUserMode } from "./firebase-init.js";
 import {
   onAuthStateChanged,
   signInWithPopup,
@@ -63,11 +63,18 @@ async function fetchMyCollection(name) {
 }
 
 // ---- Search People ----
+//
+// Visibility of search results is role-gated (mirroring firestore.rules' isFriend()/isOwner()
+// intent, but enforced here client-side against the `role` field every user's own login.html
+// upsert writes to their `users/{uid}` doc — see CLAUDE.md): a Viewer may only find the Owner;
+// a Friend or the Owner may find the Owner and any Friend. Plain Viewers are never listed
+// (canParticipate() is false for them, so they'd have nothing to show anyway). Opening a
+// result navigates to profile.html, a dedicated read-only IG-style profile page, rather than
+// showing an inline summary — that page re-checks this same role gate before fetching anything.
 
 let allUsers = [];
 const peopleSearchInput = document.getElementById("people-search");
 const peopleResults = document.getElementById("people-results");
-const peoplePublicView = document.getElementById("people-public-view");
 
 async function loadUserDirectory() {
   try {
@@ -79,10 +86,21 @@ async function loadUserDirectory() {
   }
 }
 
+function searchableUsers() {
+  const myRole = getUserMode(); // OWNER / FRIEND / VIEWER
+  return allUsers.filter((p) => {
+    if (p.uid === auth.currentUser?.uid) return false;
+    if (myRole === "OWNER") return p.role === "owner" || p.role === "friend";
+    if (myRole === "FRIEND") return p.role === "owner" || p.role === "friend";
+    return p.role === "owner";
+  });
+}
+
 function renderPeopleResults(list) {
   peopleResults.replaceChildren(
     ...list.map((person) => {
-      const el = document.createElement("button");
+      const el = document.createElement("a");
+      el.href = `profile.html?uid=${encodeURIComponent(person.uid)}`;
       el.className = "w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-darkBg/40 transition-colors text-left";
       el.innerHTML = `
         <div class="w-8 h-8 rounded-full bg-neonPurple/10 flex items-center justify-center text-neonPurple text-xs overflow-hidden flex-shrink-0">
@@ -90,67 +108,24 @@ function renderPeopleResults(list) {
         </div>
         <div class="min-w-0">
           <p class="text-sm font-medium truncate">${person.displayName || person.email}</p>
-          <p class="text-[11px] text-textGray font-code truncate">${person.email}</p>
+          <p class="text-[11px] text-textGray font-code truncate">${person.username ? "@" + person.username : person.email}</p>
         </div>`;
-      el.addEventListener("click", () => showPersonPublicContent(person));
       return el;
     })
   );
 }
 
 peopleSearchInput.addEventListener("input", (event) => {
-  const q = event.target.value.trim().toLowerCase();
-  peoplePublicView.classList.add("hidden");
+  const q = event.target.value.trim().toLowerCase().replace(/^@/, "");
   if (!q) {
     peopleResults.replaceChildren();
     return;
   }
-  const matches = allUsers
-    .filter((p) => (p.displayName || "").toLowerCase().includes(q) || (p.email || "").toLowerCase().includes(q))
+  const matches = searchableUsers()
+    .filter((p) => (p.displayName || "").toLowerCase().includes(q) || (p.username || "").toLowerCase().includes(q) || (p.email || "").toLowerCase().includes(q))
     .slice(0, 8);
   renderPeopleResults(matches);
 });
-
-async function fetchPublicFor(collectionName, uid) {
-  try {
-    const snap = await getDocs(query(collection(db, collectionName), where("uid", "==", uid), where("visibility", "==", "public")));
-    return snap.docs.map((d) => d.data());
-  } catch (err) {
-    console.error(`[dashboard] public ${collectionName} for ${uid} failed:`, err.code || err);
-    return [];
-  }
-}
-
-async function showPersonPublicContent(person) {
-  peoplePublicView.classList.remove("hidden");
-  peoplePublicView.innerHTML = `<p class="text-xs font-code text-textGray">Loading&hellip;</p>`;
-
-  const [photos, journals, events, habits] = await Promise.all([
-    fetchPublicFor("photos", person.uid),
-    fetchPublicFor("journals", person.uid),
-    fetchPublicFor("life_events", person.uid),
-    fetchPublicFor("habits", person.uid),
-  ]);
-
-  const items = [
-    ...photos.map((p) => ({ icon: "fa-image", text: p.caption || "Photo", millis: p.uploadedAt?.toMillis?.() || 0 })),
-    ...journals.map((j) => ({ icon: "fa-book", text: j.title, millis: j.createdAt?.toMillis?.() || 0 })),
-    ...events.map((e) => ({ icon: "fa-timeline", text: e.title, millis: e.date?.toMillis?.() || 0 })),
-  ].sort((a, b) => b.millis - a.millis).slice(0, 5);
-
-  peoplePublicView.innerHTML = `
-    <p class="text-sm font-semibold mb-3">${person.displayName || person.email}'s public activity</p>
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm mb-4">
-      <div><p class="text-textGray text-xs">Public photos</p><p class="font-code font-semibold text-xl mt-1">${photos.length}</p></div>
-      <div><p class="text-textGray text-xs">Public journal entries</p><p class="font-code font-semibold text-xl mt-1">${journals.length}</p></div>
-      <div><p class="text-textGray text-xs">Public timeline events</p><p class="font-code font-semibold text-xl mt-1">${events.length}</p></div>
-      <div><p class="text-textGray text-xs">Public habits</p><p class="font-code font-semibold text-xl mt-1">${habits.length}</p></div>
-    </div>
-    ${items.length ? `
-      <div class="space-y-1.5">
-        ${items.map((i) => `<p class="text-xs text-textGray"><i class="fa-solid ${i.icon} mr-2 text-neonPurple"></i>${i.text}</p>`).join("")}
-      </div>` : `<p class="text-xs font-code text-textGray">No public activity yet.</p>`}`;
-}
 
 async function renderGalleryAnalytics() {
   const photos = await fetchMyCollection("photos");

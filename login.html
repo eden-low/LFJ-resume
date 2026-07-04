@@ -121,15 +121,20 @@
     }
 
     // Lightweight directory doc so other signed-in users can find this account to view its
-    // public content (see dashboard.js's "Search People").
-    async function upsertUserProfile(user) {
+    // public content (see dashboard.js's "Search People"). `role` is public (readable by any
+    // signed-in user, unlike `friends` which is owner-only) so Search People can pre-filter
+    // results by role without needing to read the whitelist itself. `merge: true` is required
+    // here — without it this write would blow away a `username` set later from Settings on
+    // the next login.
+    async function upsertUserProfile(user, mode) {
       try {
         await setDoc(doc(db, "users", user.uid), {
           uid: user.uid,
           email: user.email,
           displayName: user.displayName || "",
           photoURL: user.photoURL || "",
-        });
+          role: mode.toLowerCase(),
+        }, { merge: true });
       } catch (err) {
         console.error("[login] users profile upsert failed:", err);
       }
@@ -140,7 +145,9 @@
         if (signingIn) return;
         // Session restore (not a fresh interactive sign-in): just refresh the cached role
         // in case whitelist status changed since last time, no logging.
-        localStorage.setItem(USER_MODE_KEY, await resolveUserMode(user));
+        const mode = await resolveUserMode(user);
+        localStorage.setItem(USER_MODE_KEY, mode);
+        await upsertUserProfile(user, mode);
         location.href = getRedirectTarget();
         return;
       }
@@ -160,8 +167,9 @@
         return;
       }
 
-      localStorage.setItem(USER_MODE_KEY, await resolveUserMode(user));
-      await upsertUserProfile(user);
+      const mode = await resolveUserMode(user);
+      localStorage.setItem(USER_MODE_KEY, mode);
+      await upsertUserProfile(user, mode);
 
       // Best-effort: don't let a login_logs write failure (e.g. firestore.rules not yet
       // pasted into the Firebase Console) block an otherwise-successful sign-in.

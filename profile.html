@@ -4,7 +4,7 @@
   <script>(function(){try{var s=JSON.parse(localStorage.getItem('lfj:settings')||'{}');if(s.theme==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Habits | Low Fang Jun</title>
+  <title>Profile | Low Fang Jun</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="styles.css" />
@@ -65,72 +65,54 @@
     </div>
   </header>
 
-  <main class="max-w-3xl mx-auto px-4 mt-8 space-y-6">
-    <section class="reveal bg-cardBg/90 neon-border-purple rounded-2xl p-6">
-      <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-        <div>
-          <h1 class="font-cyber font-semibold text-2xl">Habits</h1>
-          <p class="text-textGray mt-2 text-sm">Daily check-ins, streaks, and completion trends.</p>
-        </div>
-        <div id="auth-control" class="flex items-center gap-3"></div>
-      </div>
-      <p id="habits-access-note" class="hidden mt-4 text-xs font-code text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2">
-        <i class="fa-solid fa-lock mr-1.5"></i> Signed in, but this account isn't on the private access list.
-      </p>
+  <main class="max-w-2xl mx-auto px-4 mt-8 space-y-6">
+    <a href="dashboard.html" class="text-xs font-code text-textGray hover:text-neonPurple transition-colors inline-flex items-center gap-1.5">
+      <i class="fa-solid fa-arrow-left"></i> Back to Search
+    </a>
+
+    <section id="profile-header" class="reveal bg-cardBg/90 backdrop-blur-sm p-6 rounded-2xl neon-border-purple">
+      <p class="text-xs font-code text-textGray">Loading&hellip;</p>
     </section>
 
-    <section class="reveal bg-cardBg/90 neon-border-purple rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3">
-      <div id="habit-filters" class="flex flex-wrap items-center gap-1.5 text-xs font-cyber font-bold tracking-wider text-textGray">
-        <button data-filter="all" class="filter-tab px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">All</button>
-        <button data-filter="public" class="filter-tab px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Public</button>
-        <button data-filter="private" class="filter-tab hidden px-3 py-1.5 rounded-full hover:text-rose-400 hover:bg-rose-400/10 transition-colors">Private</button>
-      </div>
-      <button id="new-habit-btn" class="hidden px-4 py-2 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all whitespace-nowrap">
-        <i class="fa-solid fa-plus mr-1.5"></i> NEW HABIT
-      </button>
+    <section id="private-notice" class="hidden reveal bg-cardBg/90 backdrop-blur-sm p-6 rounded-2xl neon-border-purple text-center">
+      <i class="fa-solid fa-lock text-2xl text-textGray"></i>
+      <p class="mt-3 text-sm text-textGray">This profile is private.</p>
     </section>
 
-    <div id="habits-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
-    <p id="habits-empty" class="hidden text-center text-xs font-code text-textGray py-10">No habits here yet.</p>
+    <section id="profile-content" class="hidden space-y-6">
+      <div class="reveal bg-cardBg/90 backdrop-blur-sm p-6 rounded-2xl neon-border-purple">
+        <p class="text-[10px] uppercase tracking-[0.2em] text-textGray font-code mb-4">Public Activity</p>
+        <div id="profile-stats" class="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm"></div>
+      </div>
+
+      <div class="reveal bg-cardBg/90 backdrop-blur-sm p-6 rounded-2xl neon-border-purple">
+        <p class="text-[10px] uppercase tracking-[0.2em] text-textGray font-code mb-4">Public Photos</p>
+        <div id="photo-grid" class="grid grid-cols-3 gap-1"></div>
+        <p id="photo-grid-empty" class="hidden text-center text-xs font-code text-textGray py-10">No public photos yet.</p>
+      </div>
+    </section>
   </main>
 
-  <!-- New Habit modal -->
-  <div id="habit-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
-    <div id="habit-modal-backdrop" class="absolute inset-0 bg-darkBg/80 backdrop-blur-sm"></div>
-    <div class="relative w-full max-w-md bg-cardBg neon-border-purple rounded-2xl p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="font-cyber font-semibold text-lg">New Habit</h2>
-        <button id="habit-modal-close" class="text-textGray hover:text-white text-xl leading-none">&times;</button>
+  <!-- Photo modal: full image + like/comment, read-only otherwise -->
+  <div id="photo-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div id="photo-modal-backdrop" class="absolute inset-0 bg-darkBg/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-lg bg-cardBg neon-border-purple rounded-2xl overflow-hidden max-h-[90vh] flex flex-col">
+      <button id="photo-modal-close" class="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-darkBg/70 text-white hover:text-neonPurple flex items-center justify-center text-xl leading-none">&times;</button>
+      <img id="photo-modal-img" src="" alt="" class="w-full max-h-[50vh] object-cover flex-shrink-0">
+      <div class="p-4 space-y-3 overflow-y-auto">
+        <p id="photo-modal-caption" class="text-sm text-white"></p>
+        <div class="flex items-center gap-4 pt-3 border-t border-borderNeon/40">
+          <button id="photo-modal-like-btn" class="flex items-center gap-1.5 text-xs font-code text-textGray hover:text-rose-400 transition-colors">
+            <i class="fa-regular fa-heart"></i> <span id="photo-modal-like-count">0</span>
+          </button>
+        </div>
+        <div id="photo-modal-comments"></div>
       </div>
-      <form id="habit-form" class="space-y-4">
-        <div>
-          <label class="block text-xs font-code text-textGray mb-1.5" for="habit-title">Title</label>
-          <input id="habit-title" type="text" required placeholder="Exercise" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-sm text-white placeholder:text-textGray/60">
-        </div>
-        <div>
-          <label class="block text-xs font-code text-textGray mb-1.5" for="habit-icon">Icon</label>
-          <input id="habit-icon" type="text" required maxlength="4" placeholder="🏃" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-sm text-white placeholder:text-textGray/60">
-          <div class="flex items-center gap-2 mt-2">
-            <button type="button" data-icon="🏃" class="icon-chip w-9 h-9 rounded-lg bg-darkBg/60 border border-borderNeon text-base hover:border-neonPurple/60 transition-colors">🏃</button>
-            <button type="button" data-icon="📚" class="icon-chip w-9 h-9 rounded-lg bg-darkBg/60 border border-borderNeon text-base hover:border-neonPurple/60 transition-colors">📚</button>
-            <button type="button" data-icon="💧" class="icon-chip w-9 h-9 rounded-lg bg-darkBg/60 border border-borderNeon text-base hover:border-neonPurple/60 transition-colors">💧</button>
-            <button type="button" data-icon="💻" class="icon-chip w-9 h-9 rounded-lg bg-darkBg/60 border border-borderNeon text-base hover:border-neonPurple/60 transition-colors">💻</button>
-          </div>
-        </div>
-        <div class="flex items-center gap-4 text-xs font-code text-textGray">
-          <label class="flex items-center gap-1.5"><input type="radio" name="habit-visibility" value="public" checked> Public</label>
-          <label class="flex items-center gap-1.5"><input type="radio" name="habit-visibility" value="private"> Private</label>
-        </div>
-        <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all">
-          SAVE HABIT
-        </button>
-        <p id="habit-status" class="text-xs font-code text-textGray text-center"></p>
-      </form>
     </div>
   </div>
 
   <script src="scripts.js" defer></script>
   <script type="module" src="auth-guard.js"></script>
-  <script type="module" src="habits.js"></script>
+  <script type="module" src="profile.js"></script>
 </body>
 </html>

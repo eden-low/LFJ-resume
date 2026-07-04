@@ -6,6 +6,7 @@ import {
   orderBy,
   limit,
   getDocs,
+  getDoc,
   doc,
   setDoc,
   deleteDoc,
@@ -68,6 +69,86 @@ function renderProfile(user) {
 document.getElementById("signout-btn").addEventListener("click", async () => {
   await signOut(auth);
   location.href = "login.html";
+});
+
+// ---- Username (@handle for Search People) ----
+
+const usernameInput = document.getElementById("username-input");
+const usernameStatus = document.getElementById("username-status");
+const saveUsernameBtn = document.getElementById("save-username-btn");
+const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+let currentUsername = "";
+
+async function loadUsername(user) {
+  try {
+    const snap = await getDoc(doc(db, "users", user.uid));
+    currentUsername = snap.data()?.username || "";
+    usernameInput.value = currentUsername;
+  } catch (err) {
+    console.error("[settings] username load failed:", err);
+  }
+}
+
+// A denied `create` on usernames/{next} means either it's genuinely taken, or
+// firestore.rules hasn't been deployed yet (the collection has no matching rule at all,
+// so Firestore denies everything on it — same error code as a real conflict). Telling these
+// apart: a read is allowed for any signed-in user under the *intended* rules, so if reading
+// the doc also comes back permission-denied, the rules themselves aren't live yet.
+async function describeUsernameFailure(username, err) {
+  if (err.code !== "permission-denied") return "Couldn't save — check console.";
+  try {
+    const snap = await getDoc(doc(db, "usernames", username));
+    return snap.exists() ? "That username is already taken." : "Couldn't save — check console.";
+  } catch {
+    return "Couldn't save — check that firestore.rules has been deployed to the Firebase Console.";
+  }
+}
+
+saveUsernameBtn.addEventListener("click", async () => {
+  const user = auth.currentUser;
+  if (!user) return;
+  const next = usernameInput.value.trim().toLowerCase();
+  usernameStatus.textContent = "";
+
+  if (next === currentUsername) return;
+  if (!USERNAME_RE.test(next)) {
+    usernameStatus.textContent = "3-20 characters: lowercase letters, numbers, underscore only.";
+    return;
+  }
+
+  usernameStatus.textContent = "Saving…";
+  saveUsernameBtn.disabled = true;
+  try {
+    // Doc ID = the handle itself, so this create fails with permission-denied if it's
+    // already reserved by someone else (see firestore.rules — no update allowed on this doc).
+    await setDoc(doc(db, "usernames", next), { uid: user.uid, createdAt: serverTimestamp() });
+  } catch (err) {
+    console.error("[settings] username reservation failed:", err.code || err);
+    usernameStatus.textContent = await describeUsernameFailure(next, err);
+    saveUsernameBtn.disabled = false;
+    return;
+  }
+
+  if (currentUsername) {
+    try {
+      await deleteDoc(doc(db, "usernames", currentUsername));
+    } catch (err) {
+      console.error("[settings] old username release failed:", err);
+    }
+  }
+
+  try {
+    // firestore.rules requires every write to users/{uid} to include a matching `uid` field
+    // (a deliberate guard, not just an update — see login.html's upsert for the same pattern),
+    // so this can't be a bare `{ username: next }` merge.
+    await setDoc(doc(db, "users", user.uid), { uid: user.uid, username: next }, { merge: true });
+    currentUsername = next;
+    usernameStatus.textContent = "Saved.";
+  } catch (err) {
+    console.error("[settings] username profile update failed:", err);
+    usernameStatus.textContent = "Handle reserved, but profile update failed — check console.";
+  }
+  saveUsernameBtn.disabled = false;
 });
 
 // ---- Preferences ----
@@ -229,6 +310,7 @@ async function loadWhitelistManagement() {
 onAuthStateChanged(auth, (user) => {
   if (!user) return;
   renderProfile(user);
+  loadUsername(user);
   // Export & Backup is for anyone signed in now — everyone has their own data to back up.
   document.getElementById("export-section").classList.remove("hidden");
   if (isOwner(user)) {
