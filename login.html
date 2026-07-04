@@ -46,17 +46,25 @@
     <button id="signin-btn" class="mt-6 w-full px-5 py-3 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-sm font-cyber font-bold tracking-wider text-white hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
       <i class="fa-brands fa-google"></i> SIGN IN WITH GOOGLE
     </button>
+    <p id="standalone-note" class="hidden mt-4 text-xs text-textGray leading-relaxed">
+      Google sign-in doesn't reliably complete inside the installed app on iPhone. Tap below to sign in using Safari, then reopen this app from your Home Screen — it'll remember you.
+    </p>
+    <a id="signin-safari-link" href="#" target="_blank" rel="noopener" class="hidden mt-4 w-full px-5 py-3 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-sm font-cyber font-bold tracking-wider text-white hover:scale-[1.02] transition-all items-center justify-center gap-2">
+      <i class="fa-solid fa-arrow-up-right-from-square"></i> OPEN IN SAFARI TO SIGN IN
+    </a>
     <p id="signin-status" class="mt-4 text-xs font-code text-textGray"></p>
   </div>
 
   <script src="scripts.js" defer></script>
   <script type="module">
     import { auth, googleProvider, db, isOwner } from "./firebase-init.js";
-    import { onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+    import { onAuthStateChanged, signInWithPopup } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
     import { addDoc, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 
     const signinBtn = document.getElementById("signin-btn");
     const statusEl = document.getElementById("signin-status");
+    const standaloneNote = document.getElementById("standalone-note");
+    const safariLink = document.getElementById("signin-safari-link");
 
     function shortDevice(ua) {
       if (!ua) return "an unknown device";
@@ -68,11 +76,25 @@
       return "an unknown device";
     }
 
-    // A standalone/installed PWA window can't reliably host signInWithPopup — on many mobile
-    // browsers the popup either fails to open or can't hand its result back to this window,
-    // which is what "stuck on the Google sign-in step" looks like. Redirect works everywhere.
+    // A standalone/installed iPhone PWA cannot reliably complete Google sign-in from inside
+    // its own window — tried both signInWithPopup (no usable opener link back from the popup)
+    // and signInWithRedirect (the pending-redirect marker Firebase stores client-side doesn't
+    // survive the round trip through Google's origin in this context), and both silently strand
+    // the user on Google's page with no way back. The only flow that reliably works is doing the
+    // OAuth dance in a real Safari tab (target="_blank" forces iOS to hand off to Safari even
+    // from a standalone window) and letting the installed app pick up the persisted session
+    // (browserLocalPersistence, same-origin storage) the next time it's opened — no repeat
+    // sign-in needed inside the standalone shell itself.
     function isStandalone() {
       return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    }
+
+    if (isStandalone()) {
+      signinBtn.classList.add("hidden");
+      standaloneNote.classList.remove("hidden");
+      safariLink.classList.remove("hidden");
+      safariLink.classList.add("flex");
+      safariLink.href = location.href;
     }
 
     // Guards against onAuthStateChanged redirecting away mid-click, which would tear down
@@ -84,7 +106,28 @@
       return raw && /^[a-zA-Z0-9_-]+\.html$/.test(raw) ? raw : "index.html";
     }
 
-    async function logSuccessfulSignIn(user) {
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        if (signingIn) return;
+        location.href = getRedirectTarget();
+        return;
+      }
+      document.body.classList.remove("auth-check-pending");
+    });
+
+    signinBtn.addEventListener("click", async () => {
+      statusEl.textContent = "";
+      signingIn = true;
+      let user;
+      try {
+        ({ user } = await signInWithPopup(auth, googleProvider));
+      } catch (err) {
+        signingIn = false;
+        console.error("[login] sign-in failed:", err);
+        statusEl.textContent = "Sign-in failed — please try again.";
+        return;
+      }
+
       // Best-effort: don't let a login_logs write failure (e.g. firestore.rules not yet
       // pasted into the Firebase Console) block an otherwise-successful sign-in.
       try {
@@ -115,57 +158,7 @@
           console.error("[login] notification write failed (continuing anyway):", err);
         }
       }
-    }
 
-    // Completes a signInWithRedirect flow when the page reloads after bouncing to Google and
-    // back. Resolves to null (not an error) if this load wasn't a redirect return.
-    getRedirectResult(auth)
-      .then(async (result) => {
-        if (!result?.user) return;
-        signingIn = true;
-        await logSuccessfulSignIn(result.user);
-        location.href = getRedirectTarget();
-      })
-      .catch((err) => {
-        console.error("[login] redirect sign-in failed:", err);
-        statusEl.textContent = "Sign-in failed — please try again.";
-      });
-
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        if (signingIn) return;
-        location.href = getRedirectTarget();
-        return;
-      }
-      document.body.classList.remove("auth-check-pending");
-    });
-
-    signinBtn.addEventListener("click", async () => {
-      statusEl.textContent = "";
-      signingIn = true;
-
-      if (isStandalone()) {
-        try {
-          await signInWithRedirect(auth, googleProvider);
-        } catch (err) {
-          signingIn = false;
-          console.error("[login] redirect sign-in failed:", err);
-          statusEl.textContent = "Sign-in failed — please try again.";
-        }
-        return; // page navigates to Google now; completion is handled by getRedirectResult above
-      }
-
-      let user;
-      try {
-        ({ user } = await signInWithPopup(auth, googleProvider));
-      } catch (err) {
-        signingIn = false;
-        console.error("[login] sign-in failed:", err);
-        statusEl.textContent = "Sign-in failed — please try again.";
-        return;
-      }
-
-      await logSuccessfulSignIn(user);
       location.href = getRedirectTarget();
     });
   </script>
