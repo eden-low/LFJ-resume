@@ -1,14 +1,15 @@
 import { auth, db, canParticipate } from "./firebase-init.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import { collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
-import { GoogleGenAI, Type, FunctionCallingConfigMode } from "https://cdn.jsdelivr.net/npm/@google/genai/+esm";
+// Use the latest official Web SDK import as requested
+import { GoogleGenAI, Type, FunctionCallingConfigMode } from "https://esm.run/@google/genai";
 
 // Embedded client-side (same trust model as the OpenWeatherMap key in index.html), but this
 // key is directly billable — unlike the weather key, a leaked/scraped copy can run up real
 // cost. Once pushed, it's visible to anyone viewing the deployed site's source or browsing the
 // public GitHub repo. Restrict it in Google Cloud Console (API restriction to Generative
 // Language API, and/or HTTP referrer restriction to your own domain) if this stays public.
-const GEMINI_API_KEY = "AQ.Ab8RN6KTGvUAsEvZ7p64JSZItqOQXPeoDPX2TFYmBznHR4VdPQ";
+const GEMINI_API_KEY = "AQ.Ab8RN6J0E-HUq-XEnhz33ZbEYTToDIDNz-397f8ZXpO40msiZA";
 const MODEL = "gemini-2.5-flash";
 
 const SYSTEM_INSTRUCTION =
