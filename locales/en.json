@@ -3,11 +3,14 @@
     "home": "Home",
     "career": "Career",
     "memories": "Memories",
+    "atlas": "Atlas",
     "journey": "Journey",
-    "people": "People",
+    "people": "Connections",
     "reports": "Reports",
     "inbox": "Inbox",
     "settings": "Settings",
+    "me": "Me",
+    "collections": "Collections",
     "journal": "Journal",
     "finance": "Finance",
     "calendar": "Calendar",
@@ -37,7 +40,14 @@
     "sign_out": "Sign Out",
     "public": "Public",
     "private": "Private",
-    "none_yet": "Nothing here yet."
+    "none_yet": "Nothing here yet.",
+    "tags": "Tags",
+    "location": "Location",
+    "collection": "Collection",
+    "uncategorized": "Uncategorized",
+    "edit_metadata": "Edit metadata",
+    "move_to_collection": "Move to Collection",
+    "use_current_location": "Use current location"
   },
   "footer": {
     "line": "EdenAtlas · by Jun · Version 2.5"
@@ -116,12 +126,44 @@
     "title": "Reports"
   },
   "people": {
-    "title": "People",
+    "title": "Connections",
     "search_placeholder": "Search by name, @username, or email…",
     "goals": "Goals",
     "new_goal": "New Goal",
     "no_goals": "No goals yet — set one to start tracking progress.",
     "achievements": "Achievements"
+  },
+  "atlas": {
+    "title": "Atlas",
+    "subtitle": "A map of the places your life has touched.",
+    "my_atlas": "My Atlas",
+    "connections": "Connections",
+    "no_locations": "No locations yet — add a place to a Memory, Journal entry, or Journey event."
+  },
+  "collections": {
+    "title": "Collections",
+    "subtitle": "Life chapters that group your Memories, Journal, Finance, Journey, and Career records together.",
+    "new": "New Collection",
+    "no_collections": "No collections yet — group your memories into a life chapter.",
+    "back": "Back to Collections",
+    "back_to_atlas": "Back to Atlas",
+    "private_notice": "This collection is private.",
+    "reflection": "Reflection / Notes",
+    "empty_memories": "This chapter is waiting for its first memory.",
+    "empty_journal": "No journal entries in this chapter yet.",
+    "empty_finance": "No expenses recorded in this chapter yet.",
+    "empty_journey": "No milestones in this chapter yet.",
+    "empty_career": "No projects linked to this chapter yet."
+  },
+  "me": {
+    "title": "Me",
+    "overview": "Overview",
+    "profile": "Profile",
+    "preferences": "Preferences",
+    "privacy": "Privacy",
+    "connections": "Connections",
+    "backup": "Backup",
+    "logs": "System Logs"
   },
   "inbox": {
     "title": "Inbox",
@@ -145,12 +187,13 @@
     "home": "Home",
     "memories": "Memories",
     "quick_add": "Quick Add",
-    "people": "People",
+    "people": "Connections",
     "me": "Me",
     "add_expense": "Add Expense",
     "write_journal": "Write Journal",
     "upload_photo": "Upload Photo",
     "add_timeline_event": "Add Timeline Event",
-    "add_habit": "Add Habit"
+    "add_habit": "Add Habit",
+    "new_collection": "New Collection"
   }
 }

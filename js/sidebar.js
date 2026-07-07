@@ -18,17 +18,19 @@ const PRIMARY_LINKS = [
   { href: "index.html", icon: "home", key: "nav.home", label: "Home" },
   { href: "resume.html", icon: "briefcase", key: "nav.career", label: "Career" },
   { href: "gallery.html", icon: "image", key: "nav.memories", label: "Memories" },
-  { href: "timeline.html", icon: "compass", key: "nav.journey", label: "Journey" },
-  { href: "expenses.html", icon: "wallet", key: "nav.finance", label: "Finance" },
+  { href: "atlas.html", icon: "map", key: "nav.atlas", label: "Atlas" },
   { href: "journal.html", icon: "book-open", key: "nav.journal", label: "Journal" },
+  { href: "expenses.html", icon: "wallet", key: "nav.finance", label: "Finance" },
   { href: "calendar.html", icon: "calendar-days", key: "nav.calendar", label: "Calendar" },
-  { href: "dashboard.html", icon: "users", key: "nav.people", label: "People" },
+  { href: "dashboard.html", icon: "users", key: "nav.people", label: "Connections" },
   { href: "reports.html", icon: "pie-chart", key: "nav.reports", label: "Reports" },
   { href: "notifications.html", icon: "bell", key: "nav.inbox", label: "Inbox" },
-  { href: "settings.html", icon: "settings", key: "nav.settings", label: "Settings" },
 ];
 
+// Journey stays reachable but de-emphasized now that Atlas is the larger location/chapter
+// module; Habits/Contact were already here for the same "still a real page, just not primary" reason.
 const SECONDARY_LINKS = [
+  { href: "timeline.html", icon: "compass", key: "nav.journey", label: "Journey" },
   { href: "habits.html", icon: "list-checks", key: "nav.habits", label: "Habits" },
   { href: "contact.html", icon: "mail", key: "nav.contact", label: "Contact" },
 ];
@@ -70,8 +72,8 @@ function sidebarHTML() {
         ${secondary}
       </nav>
       <div class="px-2.5 py-3 border-t border-borderNeon/60 space-y-0.5 flex-shrink-0">
-        <a href="settings.html" title="Profile" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-textGray hover:bg-darkBg/40 hover:text-white transition-colors">
-          <i data-lucide="user" class="w-[18px] h-[18px] flex-shrink-0"></i><span class="eden-sidebar-label truncate">Profile</span>
+        <a href="me.html" title="Me" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-textGray hover:bg-darkBg/40 hover:text-white transition-colors">
+          <i data-lucide="user" class="w-[18px] h-[18px] flex-shrink-0"></i><span class="eden-sidebar-label truncate" data-i18n="nav.me">Me</span>
         </a>
         <button id="eden-sidebar-logout" type="button" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-textGray hover:bg-rose-400/10 hover:text-rose-400 transition-colors">
           <i data-lucide="log-out" class="w-[18px] h-[18px] flex-shrink-0"></i><span class="eden-sidebar-label truncate" data-i18n="nav.logout">Log Out</span>

@@ -51,11 +51,12 @@
         <a href="index.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-house text-xs"></i> <span data-i18n="nav.home">Home</span></a>
         <a href="resume.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-scroll text-xs"></i> <span data-i18n="nav.career">Career</span></a>
         <a href="gallery.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-images text-xs"></i> <span data-i18n="nav.memories">Memories</span></a>
+        <a href="atlas.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-map-location-dot text-xs"></i> <span data-i18n="nav.atlas">Atlas</span></a>
         <a href="timeline.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-timeline text-xs"></i> <span data-i18n="nav.journey">Journey</span></a>
-        <a href="dashboard.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-chart-line text-xs"></i> <span data-i18n="nav.people">People</span></a>
+        <a href="dashboard.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-chart-line text-xs"></i> <span data-i18n="nav.people">Connections</span></a>
         <a href="reports.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-chart-pie text-xs"></i> <span data-i18n="nav.reports">Reports</span></a>
         <a href="notifications.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-bell text-xs"></i> <span data-i18n="nav.inbox">Inbox</span> <span id="notif-badge" class="hidden px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[9px] font-bold"></span></a>
-        <a href="settings.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-gear text-xs"></i> <span data-i18n="nav.settings">Settings</span></a>
+        <a href="me.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-circle-user text-xs"></i> <span data-i18n="nav.me">Me</span></a>
         <a href="journal.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-book text-xs"></i> <span data-i18n="nav.journal">Journal</span></a>
         <a href="expenses.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-wallet text-xs"></i> <span data-i18n="nav.finance">Finance</span></a>
         <a href="calendar.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-calendar-days text-xs"></i> <span data-i18n="nav.calendar">Calendar</span></a>
@@ -90,9 +91,14 @@
         <button data-filter="public" class="filter-tab px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Public</button>
         <button data-filter="private" class="filter-tab hidden px-3 py-1.5 rounded-full hover:text-rose-400 hover:bg-rose-400/10 transition-colors">Private</button>
       </div>
-      <button id="new-post-btn" class="hidden px-4 py-2 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all whitespace-nowrap">
-        <i class="fa-solid fa-plus mr-1.5"></i> NEW POST
-      </button>
+      <div class="flex items-center gap-2">
+        <button id="select-mode-btn" class="hidden px-4 py-2 bg-cardBg/70 border border-borderNeon rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:border-neonPurple transition-all whitespace-nowrap">
+          <i class="fa-regular fa-square-check mr-1.5"></i> SELECT
+        </button>
+        <button id="new-post-btn" class="hidden px-4 py-2 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all whitespace-nowrap">
+          <i class="fa-solid fa-plus mr-1.5"></i> NEW POST
+        </button>
+      </div>
     </section>
 
     <div id="feed-container" class="space-y-6"></div>
@@ -131,12 +137,99 @@
             <label class="flex items-center gap-1.5"><input type="radio" name="post-visibility" value="private"> Private</label>
           </div>
         </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="post-collection" data-i18n="common.collection">Collection</label>
+          <select id="post-collection" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+            <option value="" data-i18n="common.uncategorized">Uncategorized</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="post-tags" data-i18n="common.tags">Tags</label>
+          <input id="post-tags" type="text" placeholder="comma, separated, tags" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white placeholder:text-textGray/60">
+        </div>
+        <div class="space-y-2">
+          <label class="block text-xs font-code text-textGray mb-1.5" for="post-location-name" data-i18n="common.location">Location</label>
+          <div class="flex items-center gap-2">
+            <input id="post-location-name" type="text" placeholder="e.g. Kuching, Sarawak" class="flex-1 bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white placeholder:text-textGray/60">
+            <button type="button" id="post-use-location-btn" class="use-location-btn px-3 py-2 bg-cardBg/70 border border-borderNeon rounded-lg text-[11px] font-code text-textGray hover:border-neonPurple hover:text-white transition-colors whitespace-nowrap" data-i18n="common.use_current_location">Use current location</button>
+          </div>
+          <input id="post-latitude" type="hidden">
+          <input id="post-longitude" type="hidden">
+        </div>
         <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all">
           POST
         </button>
         <p id="post-status" class="text-xs font-code text-textGray text-center"></p>
       </form>
     </div>
+  </div>
+
+  <!-- Edit Post modal -->
+  <div id="post-edit-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div id="post-edit-modal-backdrop" class="absolute inset-0 bg-darkBg/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-md bg-cardBg neon-border-purple rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-cyber font-bold text-lg text-white" data-i18n="common.edit_metadata">Edit metadata</h2>
+        <button id="post-edit-modal-close" class="text-textGray hover:text-white text-xl leading-none">&times;</button>
+      </div>
+      <form id="post-edit-form" class="space-y-4">
+        <input type="hidden" id="post-edit-id">
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="post-edit-caption">Caption</label>
+          <textarea id="post-edit-caption" rows="2" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-sm text-white placeholder:text-textGray/60"></textarea>
+        </div>
+        <div class="flex items-center gap-4">
+          <div class="flex-1">
+            <label class="block text-xs font-code text-textGray mb-1.5" for="post-edit-category">Category</label>
+            <select id="post-edit-category" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+              <option value="travel">Travel</option>
+              <option value="projects">Projects</option>
+              <option value="events">Events</option>
+              <option value="dailylife">Daily Life</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-4 text-xs font-code text-textGray">
+            <label class="flex items-center gap-1.5"><input type="radio" name="post-edit-visibility" value="public"> Public</label>
+            <label class="flex items-center gap-1.5"><input type="radio" name="post-edit-visibility" value="private"> Private</label>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="post-edit-collection" data-i18n="common.collection">Collection</label>
+          <select id="post-edit-collection" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+            <option value="" data-i18n="common.uncategorized">Uncategorized</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="post-edit-tags" data-i18n="common.tags">Tags</label>
+          <input id="post-edit-tags" type="text" placeholder="comma, separated, tags" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white placeholder:text-textGray/60">
+        </div>
+        <div class="space-y-2">
+          <label class="block text-xs font-code text-textGray mb-1.5" for="post-edit-location-name" data-i18n="common.location">Location</label>
+          <div class="flex items-center gap-2">
+            <input id="post-edit-location-name" type="text" class="flex-1 bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white placeholder:text-textGray/60">
+            <button type="button" id="post-edit-use-location-btn" class="use-location-btn px-3 py-2 bg-cardBg/70 border border-borderNeon rounded-lg text-[11px] font-code text-textGray hover:border-neonPurple hover:text-white transition-colors whitespace-nowrap" data-i18n="common.use_current_location">Use current location</button>
+          </div>
+          <input id="post-edit-latitude" type="hidden">
+          <input id="post-edit-longitude" type="hidden">
+        </div>
+        <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all" data-i18n="common.save">
+          Save
+        </button>
+        <p id="post-edit-status" class="text-xs font-code text-textGray text-center"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Bulk move bar (Memories multi-select) -->
+  <div id="bulk-move-bar" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-cardBg neon-border-purple rounded-2xl px-4 py-3 flex items-center gap-3 shadow-lg">
+    <span id="bulk-move-count" class="text-xs font-code text-textGray">0 selected</span>
+    <select id="bulk-move-collection" class="bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-1.5 text-xs text-white">
+      <option value="" data-i18n="common.uncategorized">Uncategorized</option>
+    </select>
+    <button id="bulk-move-btn" class="px-3 py-1.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-lg text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all" data-i18n="common.move_to_collection">
+      Move
+    </button>
+    <button id="bulk-move-cancel" class="px-3 py-1.5 bg-cardBg/70 border border-borderNeon rounded-lg text-xs text-textGray hover:text-white transition-colors" data-i18n="common.cancel">Cancel</button>
   </div>
 
   <script type="module" src="js/i18n.js"></script>

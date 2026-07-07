@@ -1,4 +1,5 @@
 import { auth, googleProvider, db, storage, canParticipate } from "./firebase-init.js";
+import { t as i18nT } from "./js/i18n.js";
 import {
   onAuthStateChanged,
   signInWithPopup,
@@ -10,6 +11,8 @@ import {
   where,
   getDocs,
   addDoc,
+  doc,
+  updateDoc,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 import {
@@ -42,6 +45,69 @@ const journalModalBackdrop = document.getElementById("journal-modal-backdrop");
 const journalForm = document.getElementById("journal-form");
 const journalStatus = document.getElementById("journal-status");
 const moodSelect = document.getElementById("journal-mood");
+const journalEditModal = document.getElementById("journal-edit-modal");
+const journalEditModalClose = document.getElementById("journal-edit-modal-close");
+const journalEditModalBackdrop = document.getElementById("journal-edit-modal-backdrop");
+const journalEditForm = document.getElementById("journal-edit-form");
+const journalEditStatus = document.getElementById("journal-edit-status");
+
+// Wraps the callback-based Geolocation API in a promise that never rejects — same pattern
+// index.html's weather widget uses, duplicated per this codebase's per-page convention.
+function getBrowserLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => resolve(null),
+      { timeout: 8000, maximumAge: 0 }
+    );
+  });
+}
+
+function wireUseLocationBtn(btn, nameInput, latInput, lonInput) {
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = "Locating...";
+    const loc = await getBrowserLocation();
+    btn.disabled = false;
+    btn.textContent = original;
+    if (!loc) return;
+    latInput.value = loc.lat;
+    lonInput.value = loc.lon;
+    if (!nameInput.value.trim()) nameInput.value = `${loc.lat.toFixed(3)}, ${loc.lon.toFixed(3)}`;
+  });
+}
+
+let cachedCollections = null;
+async function loadMyCollectionOptions() {
+  const user = auth.currentUser;
+  if (!user) return [];
+  if (cachedCollections) return cachedCollections;
+  try {
+    const snap = await getDocs(query(collection(db, "collections"), where("uid", "==", user.uid)));
+    cachedCollections = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.error("[journal] collections fetch failed:", err.code || err);
+    cachedCollections = [];
+  }
+  return cachedCollections;
+}
+
+function collectionLabel(c) {
+  const lang = document.documentElement.lang === "zh" || localStorage.getItem("eden:lang") === "zh-CN" ? "zh" : "en";
+  return (lang === "zh" ? c.title_zh : c.title_en) || c.title_en || c.title_zh || "Untitled";
+}
+
+async function populateCollectionSelect(selectEl, selectedId) {
+  const cols = await loadMyCollectionOptions();
+  selectEl.innerHTML = `<option value="">${i18nT("common.uncategorized")}</option>` +
+    cols.map((c) => `<option value="${c.id}">${collectionLabel(c)}</option>`).join("");
+  selectEl.value = selectedId || "";
+}
 
 let cachedEntries = [];
 let activeVisibility = "all";
@@ -125,23 +191,28 @@ function journalCard(entry) {
   const tagsHtml = (entry.tags || [])
     .map((t) => `<span class="text-[10px] font-code px-2 py-0.5 rounded-full border border-borderNeon text-textGray">#${t}</span>`)
     .join(" ");
+  const user = auth.currentUser;
+  const isMine = !!user && entry.uid === user.uid;
 
   card.innerHTML = `
     ${entry.imageUrl ? `<img src="${entry.imageUrl}" alt="" class="w-full h-40 object-cover">` : ""}
     <div class="p-4 space-y-2.5">
       <div class="flex items-start justify-between gap-3">
         <h2 class="text-sm font-semibold leading-snug">${mood ? `${mood.emoji} ` : ""}${entry.title}</h2>
-        <span class="text-[10px] font-code px-2 py-0.5 rounded-full flex-shrink-0 border ${isPrivate ? "border-rose-400/30 bg-rose-400/10 text-rose-400" : "border-emerald-400/30 bg-emerald-400/10 text-emerald-400"}">
-          <i class="fa-solid ${isPrivate ? "fa-lock" : "fa-globe"}"></i>
-        </span>
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <span class="text-[10px] font-code px-2 py-0.5 rounded-full border ${isPrivate ? "border-rose-400/30 bg-rose-400/10 text-rose-400" : "border-emerald-400/30 bg-emerald-400/10 text-emerald-400"}">
+            <i class="fa-solid ${isPrivate ? "fa-lock" : "fa-globe"}"></i>
+          </span>
+          ${isMine ? `<button class="edit-entry-btn text-textGray hover:text-neonPurple transition-colors" title="Edit metadata"><i class="fa-solid fa-pen text-xs"></i></button>` : ""}
+        </div>
       </div>
       <div class="text-sm text-textGray leading-relaxed journal-body">${expanded ? marked.parse(entry.content || "") : snippet(entry.content || "")}</div>
-      <div class="flex flex-wrap items-center gap-1.5">${tagsHtml}</div>
+      <div class="flex flex-wrap items-center gap-1.5">${tagsHtml}${entry.locationName ? `<span class="text-[10px] font-code px-2 py-0.5 rounded-full border border-borderNeon text-textGray"><i class="fa-solid fa-location-dot mr-1"></i>${entry.locationName}</span>` : ""}</div>
       <p class="text-[11px] text-textGray/70 font-code">${formatTimestamp(entry.createdAt)}</p>
     </div>`;
 
   card.addEventListener("click", (event) => {
-    if (event.target.closest("a")) return;
+    if (event.target.closest("a") || event.target.closest(".edit-entry-btn")) return;
     if (expandedIds.has(key)) {
       expandedIds.delete(key);
     } else {
@@ -149,6 +220,14 @@ function journalCard(entry) {
     }
     renderGrid();
   });
+
+  const editBtn = card.querySelector(".edit-entry-btn");
+  if (editBtn) {
+    editBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openEditModal(entry);
+    });
+  }
 
   return card;
 }
@@ -292,9 +371,23 @@ function closeModal() {
   journalStatus.textContent = "";
 }
 
+newJournalBtn.addEventListener("click", () => populateCollectionSelect(document.getElementById("journal-collection")));
 newJournalBtn.addEventListener("click", openModal);
 journalModalClose.addEventListener("click", closeModal);
 journalModalBackdrop.addEventListener("click", closeModal);
+
+wireUseLocationBtn(
+  document.getElementById("journal-use-location-btn"),
+  document.getElementById("journal-location-name"),
+  document.getElementById("journal-latitude"),
+  document.getElementById("journal-longitude")
+);
+wireUseLocationBtn(
+  document.getElementById("journal-edit-use-location-btn"),
+  document.getElementById("journal-edit-location-name"),
+  document.getElementById("journal-edit-latitude"),
+  document.getElementById("journal-edit-longitude")
+);
 
 journalForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -310,6 +403,10 @@ journalForm.addEventListener("submit", async (event) => {
     .filter(Boolean);
   const visibility = journalForm.querySelector('input[name="journal-visibility"]:checked').value;
   const file = document.getElementById("journal-image").files[0];
+  const collectionId = document.getElementById("journal-collection").value || null;
+  const locationName = document.getElementById("journal-location-name").value.trim() || null;
+  const latRaw = document.getElementById("journal-latitude").value;
+  const lonRaw = document.getElementById("journal-longitude").value;
   if (!title || !content) return;
 
   journalStatus.textContent = "Saving...";
@@ -331,6 +428,10 @@ journalForm.addEventListener("submit", async (event) => {
       imageUrl,
       createdAt: serverTimestamp(),
       uid: user.uid,
+      collectionId,
+      locationName,
+      latitude: latRaw ? Number(latRaw) : null,
+      longitude: lonRaw ? Number(lonRaw) : null,
     });
 
     journalStatus.textContent = "Saved.";
@@ -339,5 +440,60 @@ journalForm.addEventListener("submit", async (event) => {
   } catch (err) {
     console.error("Save failed", err);
     journalStatus.textContent = "Save failed — check console.";
+  }
+});
+
+// ---- Edit metadata ----
+
+async function openEditModal(entry) {
+  document.getElementById("journal-edit-id").value = entry.id;
+  document.getElementById("journal-edit-title").value = entry.title || "";
+  document.getElementById("journal-edit-content").value = entry.content || "";
+  document.querySelector(`#journal-edit-form input[name="journal-edit-visibility"][value="${entry.visibility || "public"}"]`).checked = true;
+  document.getElementById("journal-edit-tags").value = (entry.tags || []).join(", ");
+  document.getElementById("journal-edit-location-name").value = entry.locationName || "";
+  document.getElementById("journal-edit-latitude").value = entry.latitude ?? "";
+  document.getElementById("journal-edit-longitude").value = entry.longitude ?? "";
+  await populateCollectionSelect(document.getElementById("journal-edit-collection"), entry.collectionId);
+  journalEditStatus.textContent = "";
+  journalEditModal.classList.remove("hidden");
+}
+function closeEditModal() {
+  journalEditModal.classList.add("hidden");
+  journalEditForm.reset();
+  journalEditStatus.textContent = "";
+}
+journalEditModalClose.addEventListener("click", closeEditModal);
+journalEditModalBackdrop.addEventListener("click", closeEditModal);
+
+journalEditForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const user = auth.currentUser;
+  if (!user) return;
+  const id = document.getElementById("journal-edit-id").value;
+  const entry = cachedEntries.find((e) => e.id === id);
+  if (!entry || entry.uid !== user.uid) return;
+
+  const latRaw = document.getElementById("journal-edit-latitude").value;
+  const lonRaw = document.getElementById("journal-edit-longitude").value;
+  const payload = {
+    title: document.getElementById("journal-edit-title").value.trim(),
+    content: document.getElementById("journal-edit-content").value.trim(),
+    visibility: document.querySelector('#journal-edit-form input[name="journal-edit-visibility"]:checked').value,
+    tags: document.getElementById("journal-edit-tags").value.split(",").map((t) => t.trim()).filter(Boolean),
+    collectionId: document.getElementById("journal-edit-collection").value || null,
+    locationName: document.getElementById("journal-edit-location-name").value.trim() || null,
+    latitude: latRaw ? Number(latRaw) : null,
+    longitude: lonRaw ? Number(lonRaw) : null,
+    updatedAt: serverTimestamp(),
+  };
+  try {
+    await updateDoc(doc(db, "journals", id), payload);
+    journalEditStatus.textContent = "Saved.";
+    await fetchVisibleEntries();
+    closeEditModal();
+  } catch (err) {
+    console.error("[journal] edit save failed:", err.code || err);
+    journalEditStatus.textContent = "Couldn't save — check console.";
   }
 });

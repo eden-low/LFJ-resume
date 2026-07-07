@@ -2,7 +2,7 @@
 
 *A personal digital atlas for memories, growth, career, and life.*
 
-A 15-page **login-first**, **multi-tenant**, **bilingual (English/中文)** personal system built
+A 16-page **login-first**, **multi-tenant**, **bilingual (English/中文)** personal system built
 around Low Fang Jun ("Jun"), styled as a dark glassmorphism product (near-black canvas,
 translucent blurred cards, a single soft violet accent, Apple system fonts). The owner and any
 number of approved "friends" each get their own private expenses/journal/photos/timeline/habits
@@ -22,11 +22,19 @@ entirely (it didn't fit "organize your life"); the horizontal top-nav was replac
 permanent desktop sidebar; Home, Career, and Profile were each calmed down (fewer cards, less
 "portfolio" framing); empty states got warmer copy; Lucide was adopted as the icon standard for
 newly-touched surfaces; and a handful of restrained animations (page fade-in, card hover lift,
-loading skeletons) were added. See `CLAUDE.md`'s version history for the full breakdown.
+loading skeletons) were added.
+
+**v2.7 ("Collections & Atlas")** connects the existing record types instead of adding new ones:
+records can now be grouped into **Collections** (life chapters like "Japan Trip") and carry a
+**location**, both browsable from the new **Atlas** map; Memories/Journal/Finance/Journey items
+(plus Career Projects) gained an edit-metadata affordance they never had before; and Profile +
+Settings + Dashboard's personal-analytics half merged into one **Me** control center, with
+Dashboard trimmed to just Search People (relabeled **Connections**). See `CLAUDE.md`'s version
+history for the full breakdown.
 
 ## Roles
 
-- **Owner** (`jjun8647@gmail.com`) — full access everywhere, plus the only role that sees System Logs and Whitelist Management in Settings.
+- **Owner** (`jjun8647@gmail.com`) — full access everywhere, plus the only role that sees System Logs and Whitelist Management in Me → Connections/System Logs.
 - **Friend** — anyone approved via Settings' Whitelist (a `friends/{email}` Firestore doc). Gets their own private expenses/journal/photos/timeline/habits space, structurally identical to the owner's.
 - **Viewer** — anyone else who signs in with Google. Read-only: sees public content from the owner and any friend, can like/comment on public gallery posts, but can't create anything of their own.
 
@@ -44,18 +52,20 @@ original build to avoid a risky site-wide route rename (see the Brand & navigati
 | (none) | [login.html](login.html) | The one page reachable while signed out — "Sign in with Google," resolves the signer's role, then redirects into the app |
 | Home | [index.html](index.html) | A daily-habit landing page, not a dashboard: a time-of-day greeting + live clock + weather, a **Today** strip (habits/spending/journal/photos/notifications), an "On This Day" **Memories** flashback, **Recent Memories** (latest photo/journal/timeline events), a **This Month** recap, and **Quick Actions** (add an expense/journal entry/photo without leaving the page) |
 | Career | [resume.html](resume.html) | HR-friendly Career CMS — Profile/Highlights/Education/Leadership sections stay static; **Experience**, **Projects** (with Featured strip + detail modal + Reflection), **Certificates**, and **Awards** are Firestore-backed and owner-editable, everyone else sees public items read-only. See [Career CMS](#career-cms-careerjs) below |
-| Memories | [gallery.html](gallery.html) | Instagram-style feed — your own photos (any visibility) plus everyone's public ones, organized into albums (Travel/Projects/Events/Daily Life) plus a cross-cutting Favorites star; likes, comments, and per-post view analytics visible only to that post's own creator |
-| Journal | [journal.html](journal.html) | Daily journal — markdown entries with mood + tags, optional image; your own entries plus everyone's public ones |
-| Finance | [expenses.html](expenses.html) | Personal spend tracker — always private, never shared; daily-spending and by-category Chart.js charts |
-| Journey | [timeline.html](timeline.html) | Life events grouped by year — your own events plus everyone's public ones |
+| Memories | [gallery.html](gallery.html) | Instagram-style feed — your own photos (any visibility) plus everyone's public ones, organized into albums (Travel/Projects/Events/Daily Life) plus a cross-cutting Favorites star; likes, comments, and per-post view analytics visible only to that post's own creator; owner can edit a post's caption/album/collection/tags/location/visibility after the fact, and bulk-move several photos into a Collection at once |
+| Atlas | [atlas.html](atlas.html) | A Leaflet.js + CARTO-tiles map of every place your Memories/Journal/Journey carry a location for — **My Atlas** (your own, any visibility) and **Connections** (lazy-loaded, public-only, rounded coordinates, capped to 100 recent items, never expenses) segmented tabs; clicking a pin opens a location detail panel. Its "Collections" tab is the only nav entry point into `collections.html` |
+| Journal | [journal.html](journal.html) | Daily journal — markdown entries with mood + tags, optional image, optional location; your own entries plus everyone's public ones; owner can edit an entry's metadata after the fact |
+| Finance | [expenses.html](expenses.html) | Personal spend tracker — always private, never shared; daily-spending and by-category Chart.js charts; owner can edit amount/category/note/date/collection/tags after the fact |
+| Journey | [timeline.html](timeline.html) | Life events grouped by year — your own events plus everyone's public ones; owner can edit an event's metadata (incl. location) after the fact. Reachable from the sidebar's secondary group now that Atlas is the larger location/chapter module |
 | Habits | [habits.html](habits.html) | Habit tracker — daily check-ins, streaks, a 7-day weekly strip, and a monthly completion ring per habit |
 | Calendar | [calendar.html](calendar.html) | Monthly 7-column grid of your own expenses/photos/journal entries, bucketed by day |
 | Reports | [reports.html](reports.html) | Monthly recap of your own activity — total spend, top category, weekday-vs-weekend spending comparison, photo/journal counts |
-| People | [dashboard.html](dashboard.html) | **Search People** (find another signed-in user by name/@username/email) plus read-only analytics of your own Memories/Finance/Journal activity, **Goals** (target/progress/deadline tracking), and auto-generated **Achievements** (tiered, data-driven badges) |
+| Connections | [dashboard.html](dashboard.html) | **Search People** only (find another signed-in user by name/@username/email) — personal analytics/Goals/Achievements moved to **Me** in v2.7 |
 | (search result only) | [profile.html](profile.html) | Read-only GitHub+Instagram-style profile (`?uid=`) opened from Search People — avatar/name/@username/bio/location/joined date, public stats (incl. habit completion %), public Achievement badges, Recent Activity, photo **Albums** (Travel/Projects/Events/Daily Life/Favorites), and public Timeline/Journal lists — all public content only, nothing editable. Not in the nav — only reachable via a search result, same as `login.html` |
 | Inbox | [notifications.html](notifications.html) | Your own notification center — login/expense/journal/habit/gallery alerts, unread badge in the nav, mark-as-read |
 | Contact | [contact.html](contact.html) | Email / phone / location, with a one-click "send message" CTA |
-| Settings | [settings.html](settings.html) | Profile (incl. @username, bio, location), **language switcher**, preferences, Export & Backup (any signed-in user), and — owner-only — login history and Whitelist Friend Management |
+| (via Atlas) | [collections.html](collections.html) / [collection-detail.html](collection-detail.html) | **Collections** — life chapters (e.g. "Japan Trip") that group existing Memories/Journal/Finance/Journey/Career records via a `collectionId` reference, never a copy. List page: create/edit/delete (blocked while non-empty) with per-type item counts; detail page: cover/title/description/visibility header, one section per record type plus a Reflection/Notes field, and a synthetic "Uncategorized" view for anything with no collection |
+| Me | [me.html](me.html) | Personal control center — merges the old Profile + Settings + Dashboard's personal analytics into one tabbed page: **Overview** (Goals/Achievements/Gallery/Expense/Journal analytics), **Profile** (@username/bio/location/account dates), **Preferences** (theme/language/default city/default visibility), **Privacy** (role/visibility explainer), **Connections** (Whitelist Friend Management, owner-only), **Backup** (Export & Backup), **System Logs** (owner-only). `settings.html` now just redirects here |
 
 ## Running locally
 
@@ -99,25 +109,52 @@ filter, a detail modal, and a Reflection field. Uploads go to
 [migrate-career.html](migrate-career.html) ports the old static Education/Work-Experience/
 Achievements prose into the new collections — delete it after running once.
 
+## Collections & Atlas (v2.7)
+
+**Collections** ([collections.js](collections.js) / [collection-detail.js](collection-detail.js))
+are containers, not a data migration — a Memory/Journal entry/Expense/Journey event/Career
+project points at a collection via an optional `collectionId` field, and moving it between
+collections (or back to "Uncategorized") is a one-field `updateDoc`, never a copy. The list page
+shows mine+public collections plus a synthetic "Uncategorized" card, with per-type item counts;
+delete is blocked (not just confirmed) while any item still references it. Cover images are a
+plain URL string — either typed manually or copied from one of your own Memories — never a
+Storage upload, so `storage.rules` needed no changes. Gallery also gained a **bulk move**
+(a "Select" mode + floating action bar) to reassign several photos' `collectionId` at once.
+
+**Atlas** ([atlas.js](atlas.js)) is a Leaflet.js map (CARTO dark/light tiles via CDN, no paid
+API) of every `locationName`/`latitude`/`longitude` your Memories/Journal/Journey carry. **My
+Atlas** (default) shows your own location-tagged records, any visibility, clustered by name and
+plotted with exact coordinates. **Connections** (lazy-loaded only when that tab is opened) shows
+public-only records from the owner + your approved friends, coordinates rounded to ~2 decimals,
+capped to the 100 most recent, and — by construction of the query — never expenses. Clicking a
+pin opens a detail panel: location name, per-type counts, linked Collections, a few recent
+photos. Location input (`locationName` + optional lat/lng + a "Use current location" button
+reusing `index.html`'s existing Geolocation pattern) was added to the Memories/Journal/Journey
+create-and-edit forms; Finance/Career intentionally skip it.
+
 ## Desktop Sidebar: `js/sidebar.js`
 
 A fifth shared module (v2.6), self-injecting like the others. The old horizontal top-nav
 header is now permanently hidden on every breakpoint; on desktop, `js/sidebar.js` injects a
-fixed left sidebar instead — Home/Career/Memories/Journey/Finance/Journal/Calendar/People/
-Reports/Inbox/Settings as the primary list, Habits/Contact as a smaller secondary group (real
-pages that would otherwise have no nav entry), then Profile/Logout/Collapse pinned to the
-bottom. Collapses to an icon-only rail (`localStorage`-persisted) via a `--sidebar-w` CSS
-variable that `body`'s `padding-left` reads, so every page reflows without its own layout change.
+fixed left sidebar instead — as of v2.7: Home/Career/Memories/Atlas/Journal/Finance/Calendar/
+Connections/Reports/Inbox as the primary list, Journey/Habits/Contact as a smaller secondary
+group (real pages that would otherwise have no nav entry — Journey moved here now that Atlas is
+the larger location/chapter module), then **Me**/Logout/Collapse pinned to the bottom (this row
+used to say "Profile" and link to Settings; both were folded into Me). Collections has no sidebar
+entry of its own — it's reached from inside Atlas. Collapses to an icon-only rail
+(`localStorage`-persisted) via a `--sidebar-w` CSS variable that `body`'s `padding-left` reads,
+so every page reflows without its own layout change.
 
 ## Mobile navigation: `js/mobile-nav.js`
 
 A fourth shared module. Below the `md` breakpoint, the sidebar and the old desktop header both
-stay hidden in favor of an injected fixed top bar (hamburger — brand — avatar), a slide-in
-drawer (full page list + language switcher + logout), a fixed bottom nav (Home / Memories /
-Quick Add / People / Me), and a **Quick Add** bottom sheet (Add Expense / Write Journal / Upload
-Photo / Add Timeline Event / Add Habit) that deep-links to `{page}.html?new=1` — the five target
-pages' own scripts auto-open their existing "New X" modal when that param is present, rather
-than duplicating the form. All touch targets are ≥44px.
+stay hidden in favor of an injected fixed top bar (hamburger — brand — avatar, now linking to
+Me), a slide-in drawer (full page list, including Atlas, + language switcher + logout), a fixed
+bottom nav (Home / Memories / Quick Add / Connections / Me), and a **Quick Add** bottom sheet
+(Add Expense / Write Journal / Upload Photo / Add Timeline Event / Add Habit / New Collection,
+v2.7) that deep-links to `{page}.html?new=1` — each target page's own script auto-opens its
+existing "New X" modal when that param is present, rather than duplicating the form. All touch
+targets are ≥44px.
 
 ## Global Search
 
@@ -149,7 +186,7 @@ The site moved from a neon-cyber "hunter status" look to a dark glassmorphism da
 
 Every content collection (`expenses`, `journals`, `photos`, `life_events`, `habits`) is scoped by a `uid` field identifying its creator. The core fetch pattern, used identically across Gallery/Journal/Timeline/Habits: two Firestore queries merged by doc ID — `where("uid","==",myUid)` (all of *my* docs, any visibility) plus `where("visibility","==","public")` (everyone's public docs). Expenses skip the public half entirely (always private, no visibility concept). Every "New X" button and write is gated by `canParticipate()` (Owner or Friend) rather than a global owner check, and every new doc is written with `uid: auth.currentUser.uid`.
 
-`friends/{email}` (Settings' Whitelist — Friend Management) grants Friend status; `users/{uid}` is a lightweight directory doc upserted on every login (now also carrying a public `role` field and an optional `username`), powering Dashboard's **Search People**. `usernames/{username}` is a one-doc-per-handle reservation collection (doc ID = the handle) that makes unique @usernames possible without a backend — Firestore's create-vs-update distinction means "claim if free" falls out of a plain `create` rule with no matching `update` rule. [firestore.rules](firestore.rules) and [storage.rules](storage.rules) are the source of truth for all of this; after editing either, deploy with `npx firebase-tools deploy --only firestore:rules,storage` (see [firebase.json](firebase.json)/[.firebaserc](.firebaserc) — a dev-only CLI tool, the site itself stays buildless).
+`friends/{email}` (Me → Connections' Whitelist — Friend Management) grants Friend status; `users/{uid}` is a lightweight directory doc upserted on every login (now also carrying a public `role` field and an optional `username`), powering **Search People**. `usernames/{username}` is a one-doc-per-handle reservation collection (doc ID = the handle) that makes unique @usernames possible without a backend — Firestore's create-vs-update distinction means "claim if free" falls out of a plain `create` rule with no matching `update` rule. `collections/{id}` (v2.7) is a life-chapter container — same `isMineOrPublic` shape as `journals`/`life_events`/`habits` — that existing records reference via an optional `collectionId` field; `photos`/`journals`/`life_events`/`expenses`/`career_projects` also gained optional `tags`/`locationName`/`latitude`/`longitude` fields (expenses get `collectionId`/`tags` only — no location UI, no visibility, always private). [firestore.rules](firestore.rules) and [storage.rules](storage.rules) are the source of truth for all of this; after editing either, deploy with `npx firebase-tools deploy --only firestore:rules,storage` (see [firebase.json](firebase.json)/[.firebaserc](.firebaserc) — a dev-only CLI tool, the site itself stays buildless).
 
 ## Gallery: Instagram-style feed with social features
 
@@ -171,21 +208,23 @@ Each user sees only their own notifications ([notifications.js](notifications.js
 
 Available to any signed-in user from Settings ([export.js](export.js)) — downloads *your own* data: Expenses as CSV, Journal as a combined Markdown file, Timeline and Gallery metadata as JSON, and a "Full Backup" JSON bundling `{ profile, settings, expenses, journals, timeline, gallery_metadata, habits }`.
 
-## Dashboard: read-only analytics + Search People
+## Connections: Search People
 
-[dashboard.js](dashboard.js) computes Gallery/Expense/Journal analytics from your own data only (no cross-user aggregation). **Search People** fetches the `users` directory, lets you search by name/@username/email, and — filtered by role (a Viewer only finds the Owner; a Friend or the Owner finds the Owner and any Friend) — links each result to [profile.html](profile.html), a dedicated read-only profile page with a public photo grid (like/comment, no edit) instead of an inline summary card.
+[dashboard.js](dashboard.js) (nav-labeled "Connections" since v2.7) is now just **Search People** — fetches the `users` directory, lets you search by name/@username/email, and — filtered by role (a Viewer only finds the Owner; a Friend or the Owner finds the Owner and any Friend) — links each result to [profile.html](profile.html), a dedicated read-only profile page with a public photo grid (like/comment, no edit) instead of an inline summary card. Gallery/Expense/Journal analytics, Goals, and Achievements moved to [me.html](me.html)'s Overview tab in v2.7 (they used to live here).
 
-## Settings
+## Me: personal control center
 
-**Profile** (read-only off `auth.currentUser`) and **Preferences** (`localStorage`) are available to everyone. **Export & Backup** is available to any signed-in user. **System Logs** (last 20 `login_logs`) and **Whitelist — Friend Management** (promote/demote `friends/{email}` docs) are owner-only.
+[me.js](me.js) merges what used to be three separate places — Settings, Dashboard's personal analytics, and (implicitly) a self-profile view — into one tabbed page: **Overview** (Gallery/Expense/Journal analytics, Goals, Achievements — all `uid==me`-only, unchanged logic from the old Dashboard), **Profile** (@username reservation flow, bio/location, read-only account dates — unchanged logic from the old Settings), **Preferences** (theme/language/default city/default post visibility), **Privacy** (a read-only explainer of the role/visibility model — deliberately minimal, no new toggles that nothing else reads), **Connections** (Whitelist Friend Management, owner-only), **Backup** (Export & Backup, wired to the unchanged [export.js](export.js)), and **System Logs** (last 20 `login_logs`, owner-only). [settings.html](settings.html) is now a one-line `<meta http-equiv="refresh">` redirect here, kept only for old bookmarks/links.
 
 ## Brand & navigation
 
 Renamed sitewide from "Low Fang Jun / Personal OS" to **EdenAtlas** — nav labels changed
 (Gallery→Memories, Timeline→Journey, Expenses→Finance, Notifications→Inbox, Resume→Career,
-Dashboard→People) but **file names were deliberately left unchanged** to avoid the risk of a
-site-wide route rename (broken bookmarks, PWA cache, internal links) for a purely cosmetic win.
-Every page footer reads `EdenAtlas · by Jun · Version 2.5`.
+Dashboard→People, and as of v2.7, People→Connections, Settings→Me) but **file names were
+deliberately left unchanged** to avoid the risk of a site-wide route rename (broken bookmarks,
+PWA cache, internal links) for a purely cosmetic win — `dashboard.html` is "Connections" and
+`settings.html` is now a redirect to the new `me.html`. Every page footer reads
+`EdenAtlas · by Jun · Version 2.5`.
 
 ## Structure notes
 

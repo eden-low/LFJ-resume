@@ -1,4 +1,5 @@
 import { auth, googleProvider, db, canParticipate } from "./firebase-init.js";
+import { t as i18nT } from "./js/i18n.js";
 import {
   onAuthStateChanged,
   signInWithPopup,
@@ -10,7 +11,10 @@ import {
   where,
   getDocs,
   addDoc,
+  doc,
+  updateDoc,
   serverTimestamp,
+  Timestamp,
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 
 const CATEGORY_META = {
@@ -32,11 +36,47 @@ const expenseModalClose = document.getElementById("expense-modal-close");
 const expenseModalBackdrop = document.getElementById("expense-modal-backdrop");
 const expenseForm = document.getElementById("expense-form");
 const expenseStatus = document.getElementById("expense-status");
+const expenseEditModal = document.getElementById("expense-edit-modal");
+const expenseEditModalClose = document.getElementById("expense-edit-modal-close");
+const expenseEditModalBackdrop = document.getElementById("expense-edit-modal-backdrop");
+const expenseEditForm = document.getElementById("expense-edit-form");
+const expenseEditStatus = document.getElementById("expense-edit-status");
 
 let cachedExpenses = [];
 let activeFilter = "all";
 let dailyChart = null;
 let categoryChart = null;
+
+function dateInputValue(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+let cachedCollections = null;
+async function loadMyCollectionOptions() {
+  const user = auth.currentUser;
+  if (!user) return [];
+  if (cachedCollections) return cachedCollections;
+  try {
+    const snap = await getDocs(query(collection(db, "collections"), where("uid", "==", user.uid)));
+    cachedCollections = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.error("[expenses] collections fetch failed:", err.code || err);
+    cachedCollections = [];
+  }
+  return cachedCollections;
+}
+
+function collectionLabel(c) {
+  const lang = document.documentElement.lang === "zh" || localStorage.getItem("eden:lang") === "zh-CN" ? "zh" : "en";
+  return (lang === "zh" ? c.title_zh : c.title_en) || c.title_en || c.title_zh || "Untitled";
+}
+
+async function populateCollectionSelect(selectEl, selectedId) {
+  const cols = await loadMyCollectionOptions();
+  selectEl.innerHTML = `<option value="">${i18nT("common.uncategorized")}</option>` +
+    cols.map((c) => `<option value="${c.id}">${collectionLabel(c)}</option>`).join("");
+  selectEl.value = selectedId || "";
+}
 
 function formatTimestamp(ts) {
   if (!ts?.toDate) return "";
@@ -96,10 +136,15 @@ function expenseRow(expense) {
       <div class="w-9 h-9 rounded-lg ${meta.bg} ${meta.text} flex items-center justify-center text-xs font-code font-bold flex-shrink-0 border ${meta.border}">${meta.label.slice(0, 2).toUpperCase()}</div>
       <div class="min-w-0">
         <p class="text-sm font-medium truncate">${expense.note || meta.label}</p>
-        <p class="text-[11px] text-textGray mt-0.5 font-code">${formatTimestamp(expense.createdAt)}</p>
+        <p class="text-[11px] text-textGray mt-0.5 font-code">${formatTimestamp(expense.date || expense.createdAt)}</p>
+        ${(expense.tags || []).length ? `<div class="flex flex-wrap gap-1 mt-1">${expense.tags.map((t) => `<span class="text-[10px] font-code px-1.5 py-0.5 rounded-full border border-borderNeon text-textGray">#${t}</span>`).join("")}</div>` : ""}
       </div>
     </div>
-    <span class="font-code font-semibold text-sm tabular-nums flex-shrink-0">RM ${Number(expense.amount).toFixed(2)}</span>`;
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <span class="font-code font-semibold text-sm tabular-nums">RM ${Number(expense.amount).toFixed(2)}</span>
+      <button class="edit-expense-btn text-textGray hover:text-neonPurple transition-colors" title="Edit metadata"><i class="fa-solid fa-pen text-xs"></i></button>
+    </div>`;
+  row.querySelector(".edit-expense-btn").addEventListener("click", () => openEditModal(expense));
   return row;
 }
 
@@ -262,9 +307,19 @@ function closeModal() {
   expenseStatus.textContent = "";
 }
 
+newExpenseBtn.addEventListener("click", () => {
+  document.getElementById("expense-date").value = dateInputValue();
+  populateCollectionSelect(document.getElementById("expense-collection"));
+});
 newExpenseBtn.addEventListener("click", openModal);
 expenseModalClose.addEventListener("click", closeModal);
 expenseModalBackdrop.addEventListener("click", closeModal);
+
+function parseDateInput(value) {
+  if (!value) return Timestamp.fromDate(new Date());
+  const [y, m, d] = value.split("-").map(Number);
+  return Timestamp.fromDate(new Date(y, m - 1, d));
+}
 
 expenseForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -274,6 +329,9 @@ expenseForm.addEventListener("submit", async (event) => {
   const amount = parseFloat(document.getElementById("expense-amount").value);
   const note = document.getElementById("expense-note").value.trim();
   const category = document.getElementById("expense-category").value;
+  const date = parseDateInput(document.getElementById("expense-date").value);
+  const collectionId = document.getElementById("expense-collection").value || null;
+  const tags = document.getElementById("expense-tags").value.split(",").map((t) => t.trim()).filter(Boolean);
   if (!amount || amount <= 0) return;
 
   expenseStatus.textContent = "Saving...";
@@ -282,8 +340,14 @@ expenseForm.addEventListener("submit", async (event) => {
       amount,
       category,
       note,
+      date,
       createdAt: serverTimestamp(),
       uid: user.uid,
+      collectionId,
+      tags,
+      locationName: null,
+      latitude: null,
+      longitude: null,
     });
 
     expenseStatus.textContent = "Saved.";
@@ -292,5 +356,56 @@ expenseForm.addEventListener("submit", async (event) => {
   } catch (err) {
     console.error("Save failed", err);
     expenseStatus.textContent = "Save failed — check console.";
+  }
+});
+
+// ---- Edit metadata ----
+
+async function openEditModal(expense) {
+  document.getElementById("expense-edit-id").value = expense.id;
+  document.getElementById("expense-edit-amount").value = expense.amount;
+  document.getElementById("expense-edit-note").value = expense.note || "";
+  document.getElementById("expense-edit-category").value = expense.category;
+  const d = (expense.date || expense.createdAt)?.toDate?.();
+  document.getElementById("expense-edit-date").value = d ? dateInputValue(d) : dateInputValue();
+  document.getElementById("expense-edit-tags").value = (expense.tags || []).join(", ");
+  await populateCollectionSelect(document.getElementById("expense-edit-collection"), expense.collectionId);
+  expenseEditStatus.textContent = "";
+  expenseEditModal.classList.remove("hidden");
+}
+function closeEditModal() {
+  expenseEditModal.classList.add("hidden");
+  expenseEditForm.reset();
+  expenseEditStatus.textContent = "";
+}
+expenseEditModalClose.addEventListener("click", closeEditModal);
+expenseEditModalBackdrop.addEventListener("click", closeEditModal);
+
+expenseEditForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const user = auth.currentUser;
+  if (!user) return;
+  const id = document.getElementById("expense-edit-id").value;
+  const expense = cachedExpenses.find((e) => e.id === id);
+  if (!expense || expense.uid !== user.uid) return;
+
+  const payload = {
+    amount: parseFloat(document.getElementById("expense-edit-amount").value),
+    note: document.getElementById("expense-edit-note").value.trim(),
+    category: document.getElementById("expense-edit-category").value,
+    date: parseDateInput(document.getElementById("expense-edit-date").value),
+    collectionId: document.getElementById("expense-edit-collection").value || null,
+    tags: document.getElementById("expense-edit-tags").value.split(",").map((t) => t.trim()).filter(Boolean),
+    updatedAt: serverTimestamp(),
+  };
+  if (!payload.amount || payload.amount <= 0) return;
+  try {
+    await updateDoc(doc(db, "expenses", id), payload);
+    expenseEditStatus.textContent = "Saved.";
+    await fetchMyExpenses();
+    closeEditModal();
+  } catch (err) {
+    console.error("[expenses] edit save failed:", err.code || err);
+    expenseEditStatus.textContent = "Couldn't save — check console.";
   }
 });

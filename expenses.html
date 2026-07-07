@@ -52,11 +52,12 @@
         <a href="index.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-house text-xs"></i> <span data-i18n="nav.home">Home</span></a>
         <a href="resume.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-scroll text-xs"></i> <span data-i18n="nav.career">Career</span></a>
         <a href="gallery.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-images text-xs"></i> <span data-i18n="nav.memories">Memories</span></a>
+        <a href="atlas.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-map-location-dot text-xs"></i> <span data-i18n="nav.atlas">Atlas</span></a>
         <a href="timeline.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-timeline text-xs"></i> <span data-i18n="nav.journey">Journey</span></a>
-        <a href="dashboard.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-chart-line text-xs"></i> <span data-i18n="nav.people">People</span></a>
+        <a href="dashboard.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-chart-line text-xs"></i> <span data-i18n="nav.people">Connections</span></a>
         <a href="reports.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-chart-pie text-xs"></i> <span data-i18n="nav.reports">Reports</span></a>
         <a href="notifications.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-bell text-xs"></i> <span data-i18n="nav.inbox">Inbox</span> <span id="notif-badge" class="hidden px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[9px] font-bold"></span></a>
-        <a href="settings.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-gear text-xs"></i> <span data-i18n="nav.settings">Settings</span></a>
+        <a href="me.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-circle-user text-xs"></i> <span data-i18n="nav.me">Me</span></a>
         <a href="journal.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-book text-xs"></i> <span data-i18n="nav.journal">Journal</span></a>
         <a href="expenses.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-wallet text-xs"></i> <span data-i18n="nav.finance">Finance</span></a>
         <a href="calendar.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-calendar-days text-xs"></i> <span data-i18n="nav.calendar">Calendar</span></a>
@@ -137,11 +138,77 @@
               <option value="other">Other</option>
             </select>
           </div>
+          <div class="flex-1">
+            <label class="block text-xs font-code text-textGray mb-1.5" for="expense-date">Date</label>
+            <input id="expense-date" type="date" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="expense-collection" data-i18n="common.collection">Collection</label>
+          <select id="expense-collection" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+            <option value="" data-i18n="common.uncategorized">Uncategorized</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="expense-tags" data-i18n="common.tags">Tags</label>
+          <input id="expense-tags" type="text" placeholder="comma, separated, tags" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white placeholder:text-textGray/60">
         </div>
         <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all">
           SAVE
         </button>
         <p id="expense-status" class="text-xs font-code text-textGray text-center"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit Expense modal -->
+  <div id="expense-edit-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div id="expense-edit-modal-backdrop" class="absolute inset-0 bg-darkBg/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-md bg-cardBg neon-border-purple rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-cyber font-semibold text-lg" data-i18n="common.edit_metadata">Edit metadata</h2>
+        <button id="expense-edit-modal-close" class="text-textGray hover:text-white text-xl leading-none">&times;</button>
+      </div>
+      <form id="expense-edit-form" class="space-y-4">
+        <input type="hidden" id="expense-edit-id">
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="expense-edit-amount">Amount (RM)</label>
+          <input id="expense-edit-amount" type="number" step="0.01" min="0" required class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-sm text-white">
+        </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="expense-edit-note">Note</label>
+          <input id="expense-edit-note" type="text" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-sm text-white">
+        </div>
+        <div class="flex items-center gap-4">
+          <div class="flex-1">
+            <label class="block text-xs font-code text-textGray mb-1.5" for="expense-edit-category">Category</label>
+            <select id="expense-edit-category" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+              <option value="food">Food</option>
+              <option value="transport">Transport</option>
+              <option value="shopping">Shopping</option>
+              <option value="bills">Bills</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="flex-1">
+            <label class="block text-xs font-code text-textGray mb-1.5" for="expense-edit-date">Date</label>
+            <input id="expense-edit-date" type="date" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="expense-edit-collection" data-i18n="common.collection">Collection</label>
+          <select id="expense-edit-collection" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+            <option value="" data-i18n="common.uncategorized">Uncategorized</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="expense-edit-tags" data-i18n="common.tags">Tags</label>
+          <input id="expense-edit-tags" type="text" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+        </div>
+        <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all" data-i18n="common.save">
+          Save
+        </button>
+        <p id="expense-edit-status" class="text-xs font-code text-textGray text-center"></p>
       </form>
     </div>
   </div>

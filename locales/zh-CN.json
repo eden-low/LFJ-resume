@@ -3,11 +3,14 @@
     "home": "首页",
     "career": "履历",
     "memories": "回忆",
+    "atlas": "地图集",
     "journey": "历程",
     "people": "人脉",
     "reports": "报告",
     "inbox": "收件箱",
     "settings": "设置",
+    "me": "我",
+    "collections": "收藏集",
     "journal": "日记",
     "finance": "财务",
     "calendar": "日历",
@@ -37,7 +40,14 @@
     "sign_out": "退出登录",
     "public": "公开",
     "private": "私密",
-    "none_yet": "这里还没有内容。"
+    "none_yet": "这里还没有内容。",
+    "tags": "标签",
+    "location": "位置",
+    "collection": "收藏集",
+    "uncategorized": "未分类",
+    "edit_metadata": "编辑信息",
+    "move_to_collection": "移动到收藏集",
+    "use_current_location": "使用当前位置"
   },
   "footer": {
     "line": "EdenAtlas · by Jun · Version 2.5"
@@ -123,6 +133,38 @@
     "no_goals": "还没有目标 — 设一个开始追踪进度吧。",
     "achievements": "成就"
   },
+  "atlas": {
+    "title": "地图集",
+    "subtitle": "记录你生活足迹的地图。",
+    "my_atlas": "我的地图",
+    "connections": "人脉",
+    "no_locations": "还没有地点 — 为一张回忆、一篇日记或一个历程事件添加位置吧。"
+  },
+  "collections": {
+    "title": "收藏集",
+    "subtitle": "把你的回忆、日记、财务、历程和履历记录，整理成一个个人生篇章。",
+    "new": "新建收藏集",
+    "no_collections": "还没有收藏集 — 把你的回忆整理成一个人生篇章吧。",
+    "back": "返回收藏集",
+    "back_to_atlas": "返回地图集",
+    "private_notice": "这个收藏集是私密的。",
+    "reflection": "复盘 / 笔记",
+    "empty_memories": "这个篇章，正等待着第一段回忆。",
+    "empty_journal": "这个篇章还没有日记。",
+    "empty_finance": "这个篇章还没有支出记录。",
+    "empty_journey": "这个篇章还没有里程碑。",
+    "empty_career": "还没有项目关联到这个篇章。"
+  },
+  "me": {
+    "title": "我",
+    "overview": "概览",
+    "profile": "个人资料",
+    "preferences": "偏好设置",
+    "privacy": "隐私",
+    "connections": "人脉",
+    "backup": "备份",
+    "logs": "系统日志"
+  },
   "inbox": {
     "title": "收件箱",
     "mark_all_read": "全部标为已读",
@@ -151,6 +193,7 @@
     "write_journal": "写日记",
     "upload_photo": "上传照片",
     "add_timeline_event": "添加历程事件",
-    "add_habit": "添加习惯"
+    "add_habit": "添加习惯",
+    "new_collection": "新建收藏集"
   }
 }

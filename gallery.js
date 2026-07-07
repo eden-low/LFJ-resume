@@ -1,4 +1,5 @@
 import { auth, googleProvider, db, storage, canParticipate } from "./firebase-init.js";
+import { t as i18nT } from "./js/i18n.js";
 import {
   onAuthStateChanged,
   signInWithPopup,
@@ -39,6 +40,64 @@ function albumOf(post) {
   return LEGACY_CATEGORY_ALIAS[post.category] || post.category;
 }
 
+// Wraps the callback-based Geolocation API in a promise that never rejects — a denial/timeout
+// just resolves null, same pattern index.html's weather widget already uses.
+function getBrowserLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => resolve(null),
+      { timeout: 8000, maximumAge: 0 }
+    );
+  });
+}
+
+function wireUseLocationBtn(btn, nameInput, latInput, lonInput) {
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = "Locating...";
+    const loc = await getBrowserLocation();
+    btn.disabled = false;
+    btn.textContent = original;
+    if (!loc) return;
+    latInput.value = loc.lat;
+    lonInput.value = loc.lon;
+    if (!nameInput.value.trim()) nameInput.value = `${loc.lat.toFixed(3)}, ${loc.lon.toFixed(3)}`;
+  });
+}
+
+let cachedCollections = null;
+async function loadMyCollectionOptions() {
+  const user = auth.currentUser;
+  if (!user) return [];
+  if (cachedCollections) return cachedCollections;
+  try {
+    const snap = await getDocs(query(collection(db, "collections"), where("uid", "==", user.uid)));
+    cachedCollections = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.error("[gallery] collections fetch failed:", err.code || err);
+    cachedCollections = [];
+  }
+  return cachedCollections;
+}
+
+function collectionLabel(c) {
+  const lang = document.documentElement.lang === "zh" || localStorage.getItem("eden:lang") === "zh-CN" ? "zh" : "en";
+  return (lang === "zh" ? c.title_zh : c.title_en) || c.title_en || c.title_zh || "Untitled";
+}
+
+async function populateCollectionSelect(selectEl, selectedId) {
+  const cols = await loadMyCollectionOptions();
+  selectEl.innerHTML = `<option value="">${i18nT("common.uncategorized")}</option>` +
+    cols.map((c) => `<option value="${c.id}">${collectionLabel(c)}</option>`).join("");
+  selectEl.value = selectedId || "";
+}
+
 const authControl = document.getElementById("auth-control");
 const accessNote = document.getElementById("gallery-access-note");
 const feedContainer = document.getElementById("feed-container");
@@ -51,6 +110,17 @@ const postModalClose = document.getElementById("post-modal-close");
 const postModalBackdrop = document.getElementById("post-modal-backdrop");
 const postForm = document.getElementById("post-form");
 const postStatus = document.getElementById("post-status");
+const selectModeBtn = document.getElementById("select-mode-btn");
+const postEditModal = document.getElementById("post-edit-modal");
+const postEditModalClose = document.getElementById("post-edit-modal-close");
+const postEditModalBackdrop = document.getElementById("post-edit-modal-backdrop");
+const postEditForm = document.getElementById("post-edit-form");
+const postEditStatus = document.getElementById("post-edit-status");
+const bulkMoveBar = document.getElementById("bulk-move-bar");
+const bulkMoveCount = document.getElementById("bulk-move-count");
+const bulkMoveCollection = document.getElementById("bulk-move-collection");
+const bulkMoveBtn = document.getElementById("bulk-move-btn");
+const bulkMoveCancel = document.getElementById("bulk-move-cancel");
 
 let cachedPosts = [];
 let activeFilter = "all";
@@ -58,6 +128,8 @@ const viewedThisSession = new Set();
 const expandedComments = new Set();
 const expandedAnalytics = new Set();
 const commentsCache = new Map();
+let selectMode = false;
+const selectedIds = new Set();
 
 function formatTimestamp(ts) {
   if (!ts?.toDate) return "";
@@ -78,8 +150,12 @@ function postCard(post) {
   const analyticsOpen = expandedAnalytics.has(post.id);
 
   const card = document.createElement("article");
-  card.className = "is-visible bg-cardBg/90 backdrop-blur-sm rounded-2xl neon-border-purple overflow-hidden";
+  card.className = "is-visible relative bg-cardBg/90 backdrop-blur-sm rounded-2xl neon-border-purple overflow-hidden";
   card.innerHTML = `
+    ${isMine && selectMode ? `
+      <label class="absolute top-3 left-3 z-10 w-6 h-6 rounded-md bg-darkBg/80 border border-borderNeon flex items-center justify-center cursor-pointer">
+        <input type="checkbox" class="select-checkbox w-4 h-4" ${selectedIds.has(post.id) ? "checked" : ""}>
+      </label>` : ""}
     <img src="${post.url}" alt="${post.caption || "Gallery post"}" class="w-full max-h-[520px] object-cover">
     <div class="p-4 space-y-3">
       ${post.caption ? `<p class="text-sm text-white">${post.caption}</p>` : ""}
@@ -89,6 +165,8 @@ function postCard(post) {
           <i class="fa-solid ${isPrivate ? "fa-lock" : "fa-globe"} mr-1"></i>${isPrivate ? "Private" : "Public"}
         </span>
         ${isMine ? `<span class="px-2 py-0.5 rounded-full border border-borderNeon bg-darkBg/60 text-textGray">me</span>` : ""}
+        ${(post.tags || []).map((t) => `<span class="px-2 py-0.5 rounded-full border border-borderNeon bg-darkBg/40 text-textGray">#${t}</span>`).join("")}
+        ${post.locationName ? `<span class="px-2 py-0.5 rounded-full border border-borderNeon bg-darkBg/40 text-textGray"><i class="fa-solid fa-location-dot mr-1"></i>${post.locationName}</span>` : ""}
         <span class="text-textGray">${formatTimestamp(post.uploadedAt)}</span>
       </div>
       <div class="flex items-center gap-4 pt-3 border-t border-borderNeon/40">
@@ -102,6 +180,9 @@ function postCard(post) {
           <button class="featured-toggle-btn flex items-center gap-1.5 text-xs font-code ${post.featured ? "text-amber-400" : "text-textGray"} hover:text-amber-400 transition-colors" title="${post.featured ? "Remove from Favorites" : "Add to Favorites"}">
             <i class="fa-${post.featured ? "solid" : "regular"} fa-star"></i>
           </button>
+          <button class="edit-post-btn flex items-center gap-1.5 text-xs font-code text-textGray hover:text-neonPurple transition-colors" title="Edit metadata">
+            <i class="fa-solid fa-pen"></i>
+          </button>
           <button class="analytics-toggle-btn ml-auto flex items-center gap-1.5 text-xs font-code text-textGray hover:text-neonBlue transition-colors">
             <i class="fa-solid fa-eye"></i> Analytics
           </button>` : ""}
@@ -114,8 +195,19 @@ function postCard(post) {
   card.querySelector(".comment-toggle-btn").addEventListener("click", () => toggleComments(post));
   const featuredBtn = card.querySelector(".featured-toggle-btn");
   if (featuredBtn) featuredBtn.addEventListener("click", () => toggleFeatured(post));
+  const editBtn = card.querySelector(".edit-post-btn");
+  if (editBtn) editBtn.addEventListener("click", () => openEditModal(post));
   const analyticsBtn = card.querySelector(".analytics-toggle-btn");
   if (analyticsBtn) analyticsBtn.addEventListener("click", () => toggleAnalytics(post));
+  const checkbox = card.querySelector(".select-checkbox");
+  if (checkbox) {
+    checkbox.addEventListener("click", (e) => e.stopPropagation());
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) selectedIds.add(post.id);
+      else selectedIds.delete(post.id);
+      updateBulkMoveBar();
+    });
+  }
 
   if (commentsOpen) renderCommentsPanel(post, card);
   if (analyticsOpen) renderAnalyticsPanel(post, card);
@@ -280,6 +372,7 @@ function renderSignedIn(user) {
 
   const mayParticipate = canParticipate();
   newPostBtn.classList.toggle("hidden", !mayParticipate);
+  selectModeBtn.classList.toggle("hidden", !mayParticipate);
   privateTab.classList.toggle("hidden", !mayParticipate);
   accessNote.classList.toggle("hidden", mayParticipate);
   if (!mayParticipate && activeFilter === "private") setActiveTab("all");
@@ -319,6 +412,25 @@ newPostBtn.addEventListener("click", openModal);
 postModalClose.addEventListener("click", closeModal);
 postModalBackdrop.addEventListener("click", closeModal);
 
+function parseTags(raw) {
+  return raw.split(",").map((t) => t.trim()).filter(Boolean);
+}
+
+wireUseLocationBtn(
+  document.getElementById("post-use-location-btn"),
+  document.getElementById("post-location-name"),
+  document.getElementById("post-latitude"),
+  document.getElementById("post-longitude")
+);
+wireUseLocationBtn(
+  document.getElementById("post-edit-use-location-btn"),
+  document.getElementById("post-edit-location-name"),
+  document.getElementById("post-edit-latitude"),
+  document.getElementById("post-edit-longitude")
+);
+
+newPostBtn.addEventListener("click", () => populateCollectionSelect(document.getElementById("post-collection")));
+
 postForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const user = auth.currentUser;
@@ -328,6 +440,11 @@ postForm.addEventListener("submit", async (event) => {
   const caption = document.getElementById("post-caption").value.trim();
   const category = document.getElementById("post-category").value;
   const visibility = postForm.querySelector('input[name="post-visibility"]:checked').value;
+  const collectionId = document.getElementById("post-collection").value || null;
+  const tags = parseTags(document.getElementById("post-tags").value);
+  const locationName = document.getElementById("post-location-name").value.trim() || null;
+  const latRaw = document.getElementById("post-latitude").value;
+  const lonRaw = document.getElementById("post-longitude").value;
   if (!file) return;
 
   postStatus.textContent = "Uploading...";
@@ -346,6 +463,11 @@ postForm.addEventListener("submit", async (event) => {
       caption: caption || file.name,
       uploadedAt: serverTimestamp(),
       uid: user.uid,
+      collectionId,
+      tags,
+      locationName,
+      latitude: latRaw ? Number(latRaw) : null,
+      longitude: lonRaw ? Number(lonRaw) : null,
     });
 
     postStatus.textContent = "Posted.";
@@ -354,6 +476,105 @@ postForm.addEventListener("submit", async (event) => {
   } catch (err) {
     console.error("Upload failed", err);
     postStatus.textContent = "Upload failed — check console.";
+  }
+});
+
+// ---- Edit metadata ----
+
+async function openEditModal(post) {
+  document.getElementById("post-edit-id").value = post.id;
+  document.getElementById("post-edit-caption").value = post.caption || "";
+  document.getElementById("post-edit-category").value = albumOf(post);
+  document.querySelector(`#post-edit-form input[name="post-edit-visibility"][value="${post.visibility || "public"}"]`).checked = true;
+  document.getElementById("post-edit-tags").value = (post.tags || []).join(", ");
+  document.getElementById("post-edit-location-name").value = post.locationName || "";
+  document.getElementById("post-edit-latitude").value = post.latitude ?? "";
+  document.getElementById("post-edit-longitude").value = post.longitude ?? "";
+  await populateCollectionSelect(document.getElementById("post-edit-collection"), post.collectionId);
+  postEditStatus.textContent = "";
+  postEditModal.classList.remove("hidden");
+}
+function closeEditModal() {
+  postEditModal.classList.add("hidden");
+  postEditForm.reset();
+  postEditStatus.textContent = "";
+}
+postEditModalClose.addEventListener("click", closeEditModal);
+postEditModalBackdrop.addEventListener("click", closeEditModal);
+
+postEditForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const user = auth.currentUser;
+  if (!user) return;
+  const id = document.getElementById("post-edit-id").value;
+  const post = cachedPosts.find((p) => p.id === id);
+  if (!post || !isMyPost(post, user)) return;
+
+  const latRaw = document.getElementById("post-edit-latitude").value;
+  const lonRaw = document.getElementById("post-edit-longitude").value;
+  const payload = {
+    caption: document.getElementById("post-edit-caption").value.trim(),
+    category: document.getElementById("post-edit-category").value,
+    visibility: document.querySelector('#post-edit-form input[name="post-edit-visibility"]:checked').value,
+    collectionId: document.getElementById("post-edit-collection").value || null,
+    tags: parseTags(document.getElementById("post-edit-tags").value),
+    locationName: document.getElementById("post-edit-location-name").value.trim() || null,
+    latitude: latRaw ? Number(latRaw) : null,
+    longitude: lonRaw ? Number(lonRaw) : null,
+    updatedAt: serverTimestamp(),
+  };
+  try {
+    await updateDoc(doc(db, "photos", id), payload);
+    postEditStatus.textContent = "Saved.";
+    await fetchVisiblePosts();
+    closeEditModal();
+  } catch (err) {
+    console.error("[gallery] edit save failed:", err.code || err);
+    postEditStatus.textContent = "Couldn't save — check console.";
+  }
+});
+
+// ---- Bulk move (Memories multi-select) ----
+
+function updateBulkMoveBar() {
+  bulkMoveCount.textContent = `${selectedIds.size} selected`;
+  bulkMoveBar.classList.toggle("hidden", selectedIds.size === 0);
+}
+
+selectModeBtn.addEventListener("click", async () => {
+  selectMode = !selectMode;
+  selectModeBtn.classList.toggle("bg-neonPurple/15", selectMode);
+  selectModeBtn.classList.toggle("text-neonPurple", selectMode);
+  if (selectMode) {
+    await populateCollectionSelect(bulkMoveCollection);
+  } else {
+    selectedIds.clear();
+    updateBulkMoveBar();
+  }
+  renderFeed();
+});
+
+bulkMoveCancel.addEventListener("click", () => {
+  selectedIds.clear();
+  updateBulkMoveBar();
+  renderFeed();
+});
+
+bulkMoveBtn.addEventListener("click", async () => {
+  if (!selectedIds.size) return;
+  const collectionId = bulkMoveCollection.value || null;
+  bulkMoveBtn.disabled = true;
+  try {
+    await Promise.all([...selectedIds].map((id) =>
+      updateDoc(doc(db, "photos", id), { collectionId, updatedAt: serverTimestamp() })
+    ));
+    selectedIds.clear();
+    updateBulkMoveBar();
+    await fetchVisiblePosts();
+  } catch (err) {
+    console.error("[gallery] bulk move failed:", err.code || err);
+  } finally {
+    bulkMoveBtn.disabled = false;
   }
 });
 

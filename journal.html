@@ -52,11 +52,12 @@
         <a href="index.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-house text-xs"></i> <span data-i18n="nav.home">Home</span></a>
         <a href="resume.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-scroll text-xs"></i> <span data-i18n="nav.career">Career</span></a>
         <a href="gallery.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-images text-xs"></i> <span data-i18n="nav.memories">Memories</span></a>
+        <a href="atlas.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-map-location-dot text-xs"></i> <span data-i18n="nav.atlas">Atlas</span></a>
         <a href="timeline.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-timeline text-xs"></i> <span data-i18n="nav.journey">Journey</span></a>
-        <a href="dashboard.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-chart-line text-xs"></i> <span data-i18n="nav.people">People</span></a>
+        <a href="dashboard.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-chart-line text-xs"></i> <span data-i18n="nav.people">Connections</span></a>
         <a href="reports.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-chart-pie text-xs"></i> <span data-i18n="nav.reports">Reports</span></a>
         <a href="notifications.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-bell text-xs"></i> <span data-i18n="nav.inbox">Inbox</span> <span id="notif-badge" class="hidden px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[9px] font-bold"></span></a>
-        <a href="settings.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-gear text-xs"></i> <span data-i18n="nav.settings">Settings</span></a>
+        <a href="me.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-circle-user text-xs"></i> <span data-i18n="nav.me">Me</span></a>
         <a href="journal.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-book text-xs"></i> <span data-i18n="nav.journal">Journal</span></a>
         <a href="expenses.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-wallet text-xs"></i> <span data-i18n="nav.finance">Finance</span></a>
         <a href="calendar.html" class="hover:text-neonPurple transition-colors flex items-center gap-1.5"><i class="fa-solid fa-calendar-days text-xs"></i> <span data-i18n="nav.calendar">Calendar</span></a>
@@ -137,6 +138,21 @@
           <input id="journal-tags" type="text" placeholder="work, coding, family" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-sm text-white placeholder:text-textGray/60">
         </div>
         <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="journal-collection" data-i18n="common.collection">Collection</label>
+          <select id="journal-collection" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+            <option value="" data-i18n="common.uncategorized">Uncategorized</option>
+          </select>
+        </div>
+        <div class="space-y-2">
+          <label class="block text-xs font-code text-textGray mb-1.5" for="journal-location-name" data-i18n="common.location">Location</label>
+          <div class="flex items-center gap-2">
+            <input id="journal-location-name" type="text" placeholder="e.g. Kuching, Sarawak" class="flex-1 bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white placeholder:text-textGray/60">
+            <button type="button" id="journal-use-location-btn" class="use-location-btn px-3 py-2 bg-cardBg/70 border border-borderNeon rounded-lg text-[11px] font-code text-textGray hover:border-neonPurple hover:text-white transition-colors whitespace-nowrap" data-i18n="common.use_current_location">Use current location</button>
+          </div>
+          <input id="journal-latitude" type="hidden">
+          <input id="journal-longitude" type="hidden">
+        </div>
+        <div>
           <label class="block text-xs font-code text-textGray mb-1.5" for="journal-image">Image <span class="text-textGray/60">(optional)</span></label>
           <input id="journal-image" type="file" accept="image/*" class="w-full text-xs text-textGray file:mr-3 file:px-3 file:py-2 file:rounded-lg file:border file:border-borderNeon file:bg-darkBg/60 file:text-white file:text-xs">
         </div>
@@ -144,6 +160,55 @@
           SAVE ENTRY
         </button>
         <p id="journal-status" class="text-xs font-code text-textGray text-center"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit Entry modal -->
+  <div id="journal-edit-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+    <div id="journal-edit-modal-backdrop" class="absolute inset-0 bg-darkBg/80 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-lg bg-cardBg neon-border-purple rounded-2xl p-6 my-8">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-cyber font-semibold text-lg" data-i18n="common.edit_metadata">Edit metadata</h2>
+        <button id="journal-edit-modal-close" class="text-textGray hover:text-white text-xl leading-none">&times;</button>
+      </div>
+      <form id="journal-edit-form" class="space-y-4">
+        <input type="hidden" id="journal-edit-id">
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="journal-edit-title">Title</label>
+          <input id="journal-edit-title" type="text" required class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-sm text-white">
+        </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="journal-edit-content">Content</label>
+          <textarea id="journal-edit-content" rows="6" required class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-sm text-white font-code"></textarea>
+        </div>
+        <div class="flex items-center gap-4 text-xs font-code text-textGray">
+          <label class="flex items-center gap-1.5"><input type="radio" name="journal-edit-visibility" value="public"> Public</label>
+          <label class="flex items-center gap-1.5"><input type="radio" name="journal-edit-visibility" value="private"> Private</label>
+        </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="journal-edit-tags">Tags</label>
+          <input id="journal-edit-tags" type="text" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-sm text-white">
+        </div>
+        <div>
+          <label class="block text-xs font-code text-textGray mb-1.5" for="journal-edit-collection" data-i18n="common.collection">Collection</label>
+          <select id="journal-edit-collection" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+            <option value="" data-i18n="common.uncategorized">Uncategorized</option>
+          </select>
+        </div>
+        <div class="space-y-2">
+          <label class="block text-xs font-code text-textGray mb-1.5" for="journal-edit-location-name" data-i18n="common.location">Location</label>
+          <div class="flex items-center gap-2">
+            <input id="journal-edit-location-name" type="text" class="flex-1 bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+            <button type="button" id="journal-edit-use-location-btn" class="use-location-btn px-3 py-2 bg-cardBg/70 border border-borderNeon rounded-lg text-[11px] font-code text-textGray hover:border-neonPurple hover:text-white transition-colors whitespace-nowrap" data-i18n="common.use_current_location">Use current location</button>
+          </div>
+          <input id="journal-edit-latitude" type="hidden">
+          <input id="journal-edit-longitude" type="hidden">
+        </div>
+        <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all" data-i18n="common.save">
+          Save
+        </button>
+        <p id="journal-edit-status" class="text-xs font-code text-textGray text-center"></p>
       </form>
     </div>
   </div>

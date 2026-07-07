@@ -11,22 +11,23 @@ const DRAWER_LINKS = [
   { href: "index.html", icon: "fa-house", key: "nav.home", label: "Home" },
   { href: "resume.html", icon: "fa-scroll", key: "nav.career", label: "Career" },
   { href: "gallery.html", icon: "fa-images", key: "nav.memories", label: "Memories" },
+  { href: "atlas.html", icon: "fa-map-location-dot", key: "nav.atlas", label: "Atlas" },
   { href: "journal.html", icon: "fa-book", key: "nav.journal", label: "Journal" },
   { href: "expenses.html", icon: "fa-wallet", key: "nav.finance", label: "Finance" },
-  { href: "timeline.html", icon: "fa-timeline", key: "nav.journey", label: "Journey" },
   { href: "calendar.html", icon: "fa-calendar-days", key: "nav.calendar", label: "Calendar" },
-  { href: "dashboard.html", icon: "fa-chart-line", key: "nav.people", label: "People" },
+  { href: "dashboard.html", icon: "fa-chart-line", key: "nav.people", label: "Connections" },
   { href: "reports.html", icon: "fa-chart-pie", key: "nav.reports", label: "Reports" },
   { href: "notifications.html", icon: "fa-bell", key: "nav.inbox", label: "Inbox" },
-  { href: "settings.html", icon: "fa-gear", key: "nav.settings", label: "Settings" },
+  { href: "timeline.html", icon: "fa-timeline", key: "nav.journey", label: "Journey" },
+  { href: "me.html", icon: "fa-circle-user", key: "nav.me", label: "Me" },
 ];
 
 const BOTTOM_ITEMS = [
   { href: "index.html", icon: "fa-house", key: "mobilenav.home", label: "Home" },
   { href: "gallery.html", icon: "fa-images", key: "mobilenav.memories", label: "Memories" },
   { action: "quick-add", icon: "fa-plus", key: "mobilenav.quick_add", label: "Add" },
-  { href: "dashboard.html", icon: "fa-user-group", key: "mobilenav.people", label: "People" },
-  { href: "settings.html", icon: "fa-circle-user", key: "mobilenav.me", label: "Me" },
+  { href: "dashboard.html", icon: "fa-user-group", key: "mobilenav.people", label: "Connections" },
+  { href: "me.html", icon: "fa-circle-user", key: "mobilenav.me", label: "Me" },
 ];
 
 const QUICK_ADD_ITEMS = [
@@ -35,6 +36,7 @@ const QUICK_ADD_ITEMS = [
   { href: "gallery.html?new=1", icon: "fa-image", key: "mobilenav.upload_photo", label: "Upload Photo" },
   { href: "timeline.html?new=1", icon: "fa-timeline", key: "mobilenav.add_timeline_event", label: "Add Timeline Event" },
   { href: "habits.html?new=1", icon: "fa-list-check", key: "mobilenav.add_habit", label: "Add Habit" },
+  { href: "collections.html?new=1", icon: "fa-layer-group", key: "mobilenav.new_collection", label: "New Collection" },
 ];
 
 const here = location.pathname.split("/").pop() || "index.html";
@@ -65,7 +67,7 @@ function topBarHTML() {
         <img src="images/logo-mark.png" alt="" class="w-5 h-5 object-contain">
         <span class="font-cyber font-semibold text-sm tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-neonPurple">EdenAtlas</span>
       </span>
-      <a href="settings.html" aria-label="Account" class="min-w-[44px] min-h-[44px] flex items-center justify-center text-white text-lg"><i class="fa-solid fa-circle-user"></i></a>
+      <a href="me.html" aria-label="Account" class="min-w-[44px] min-h-[44px] flex items-center justify-center text-white text-lg"><i class="fa-solid fa-circle-user"></i></a>
     </div>`;
 }
 

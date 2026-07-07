@@ -1,4 +1,5 @@
 import { auth, googleProvider, db, canParticipate } from "./firebase-init.js";
+import { t as i18nT } from "./js/i18n.js";
 import {
   onAuthStateChanged,
   signInWithPopup,
@@ -10,6 +11,9 @@ import {
   where,
   getDocs,
   addDoc,
+  doc,
+  updateDoc,
+  serverTimestamp,
   Timestamp,
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 
@@ -33,11 +37,72 @@ const eventModalClose = document.getElementById("event-modal-close");
 const eventModalBackdrop = document.getElementById("event-modal-backdrop");
 const eventForm = document.getElementById("event-form");
 const eventStatus = document.getElementById("event-status");
+const eventEditModal = document.getElementById("event-edit-modal");
+const eventEditModalClose = document.getElementById("event-edit-modal-close");
+const eventEditModalBackdrop = document.getElementById("event-edit-modal-backdrop");
+const eventEditForm = document.getElementById("event-edit-form");
+const eventEditStatus = document.getElementById("event-edit-status");
 
 let cachedEvents = [];
 let activeFilter = "all";
 let searchQuery = "";
 const expandedIds = new Set();
+
+function getBrowserLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => resolve(null),
+      { timeout: 8000, maximumAge: 0 }
+    );
+  });
+}
+
+function wireUseLocationBtn(btn, nameInput, latInput, lonInput) {
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = "Locating...";
+    const loc = await getBrowserLocation();
+    btn.disabled = false;
+    btn.textContent = original;
+    if (!loc) return;
+    latInput.value = loc.lat;
+    lonInput.value = loc.lon;
+    if (!nameInput.value.trim()) nameInput.value = `${loc.lat.toFixed(3)}, ${loc.lon.toFixed(3)}`;
+  });
+}
+
+let cachedCollections = null;
+async function loadMyCollectionOptions() {
+  const user = auth.currentUser;
+  if (!user) return [];
+  if (cachedCollections) return cachedCollections;
+  try {
+    const snap = await getDocs(query(collection(db, "collections"), where("uid", "==", user.uid)));
+    cachedCollections = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.error("[timeline] collections fetch failed:", err.code || err);
+    cachedCollections = [];
+  }
+  return cachedCollections;
+}
+
+function collectionLabel(c) {
+  const lang = document.documentElement.lang === "zh" || localStorage.getItem("eden:lang") === "zh-CN" ? "zh" : "en";
+  return (lang === "zh" ? c.title_zh : c.title_en) || c.title_en || c.title_zh || "Untitled";
+}
+
+async function populateCollectionSelect(selectEl, selectedId) {
+  const cols = await loadMyCollectionOptions();
+  selectEl.innerHTML = `<option value="">${i18nT("common.uncategorized")}</option>` +
+    cols.map((c) => `<option value="${c.id}">${collectionLabel(c)}</option>`).join("");
+  selectEl.value = selectedId || "";
+}
 
 function eventKey(event) {
   return `${event.uid}-${event.date?.toMillis?.() || 0}-${event.title}`;
@@ -76,6 +141,9 @@ function eventRow(event) {
   const key = eventKey(event);
   const expanded = expandedIds.has(key);
 
+  const user = auth.currentUser;
+  const isMine = !!user && event.uid === user.uid;
+
   const row = document.createElement("div");
   row.className = "is-visible relative pl-8";
   row.innerHTML = `
@@ -93,19 +161,34 @@ function eventRow(event) {
           <span class="text-[10px] font-code px-2 py-0.5 rounded-full border ${isPrivate ? "border-rose-400/30 bg-rose-400/10 text-rose-400" : "border-emerald-400/30 bg-emerald-400/10 text-emerald-400"}">
             <i class="fa-solid ${isPrivate ? "fa-lock" : "fa-globe"}"></i>
           </span>
+          ${isMine ? `<button class="edit-event-btn text-textGray hover:text-neonPurple transition-colors" title="Edit metadata"><i class="fa-solid fa-pen text-xs"></i></button>` : ""}
         </div>
       </div>
       ${event.description ? `<p class="text-xs text-textGray mt-2 leading-relaxed ${expanded ? "" : "hidden"}">${event.description}</p>` : ""}
+      ${(event.tags || []).length || event.locationName ? `
+        <div class="flex flex-wrap items-center gap-1.5 mt-2">
+          ${(event.tags || []).map((t) => `<span class="text-[10px] font-code px-2 py-0.5 rounded-full border border-borderNeon text-textGray">#${t}</span>`).join("")}
+          ${event.locationName ? `<span class="text-[10px] font-code px-2 py-0.5 rounded-full border border-borderNeon text-textGray"><i class="fa-solid fa-location-dot mr-1"></i>${event.locationName}</span>` : ""}
+        </div>` : ""}
     </div>`;
 
   if (event.description) {
-    row.addEventListener("click", () => {
+    row.querySelector(".cursor-pointer").addEventListener("click", (e) => {
+      if (e.target.closest(".edit-event-btn")) return;
       if (expandedIds.has(key)) {
         expandedIds.delete(key);
       } else {
         expandedIds.add(key);
       }
       renderTimeline();
+    });
+  }
+
+  const editBtn = row.querySelector(".edit-event-btn");
+  if (editBtn) {
+    editBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openEditModal(event);
     });
   }
 
@@ -243,9 +326,29 @@ function closeModal() {
   eventStatus.textContent = "";
 }
 
+newEventBtn.addEventListener("click", () => populateCollectionSelect(document.getElementById("event-collection")));
 newEventBtn.addEventListener("click", openModal);
 eventModalClose.addEventListener("click", closeModal);
 eventModalBackdrop.addEventListener("click", closeModal);
+
+wireUseLocationBtn(
+  document.getElementById("event-use-location-btn"),
+  document.getElementById("event-location-name"),
+  document.getElementById("event-latitude"),
+  document.getElementById("event-longitude")
+);
+wireUseLocationBtn(
+  document.getElementById("event-edit-use-location-btn"),
+  document.getElementById("event-edit-location-name"),
+  document.getElementById("event-edit-latitude"),
+  document.getElementById("event-edit-longitude")
+);
+
+function dateToInputValue(ts) {
+  const d = ts?.toDate?.();
+  if (!d) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 eventForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -257,6 +360,11 @@ eventForm.addEventListener("submit", async (event) => {
   const dateValue = document.getElementById("event-date").value;
   const type = document.getElementById("event-type").value;
   const visibility = eventForm.querySelector('input[name="event-visibility"]:checked').value;
+  const collectionId = document.getElementById("event-collection").value || null;
+  const tags = document.getElementById("event-tags").value.split(",").map((t) => t.trim()).filter(Boolean);
+  const locationName = document.getElementById("event-location-name").value.trim() || null;
+  const latRaw = document.getElementById("event-latitude").value;
+  const lonRaw = document.getElementById("event-longitude").value;
   if (!title || !dateValue) return;
 
   eventStatus.textContent = "Saving...";
@@ -271,6 +379,11 @@ eventForm.addEventListener("submit", async (event) => {
       type,
       visibility,
       uid: user.uid,
+      collectionId,
+      tags,
+      locationName,
+      latitude: latRaw ? Number(latRaw) : null,
+      longitude: lonRaw ? Number(lonRaw) : null,
     });
 
     eventStatus.textContent = "Saved.";
@@ -279,5 +392,66 @@ eventForm.addEventListener("submit", async (event) => {
   } catch (err) {
     console.error("Save failed", err);
     eventStatus.textContent = "Save failed — check console.";
+  }
+});
+
+// ---- Edit metadata ----
+
+async function openEditModal(event) {
+  document.getElementById("event-edit-id").value = event.id;
+  document.getElementById("event-edit-title").value = event.title || "";
+  document.getElementById("event-edit-description").value = event.description || "";
+  document.getElementById("event-edit-date").value = dateToInputValue(event.date);
+  document.getElementById("event-edit-type").value = event.type;
+  document.querySelector(`#event-edit-form input[name="event-edit-visibility"][value="${event.visibility || "public"}"]`).checked = true;
+  document.getElementById("event-edit-tags").value = (event.tags || []).join(", ");
+  document.getElementById("event-edit-location-name").value = event.locationName || "";
+  document.getElementById("event-edit-latitude").value = event.latitude ?? "";
+  document.getElementById("event-edit-longitude").value = event.longitude ?? "";
+  await populateCollectionSelect(document.getElementById("event-edit-collection"), event.collectionId);
+  eventEditStatus.textContent = "";
+  eventEditModal.classList.remove("hidden");
+}
+function closeEditModal() {
+  eventEditModal.classList.add("hidden");
+  eventEditForm.reset();
+  eventEditStatus.textContent = "";
+}
+eventEditModalClose.addEventListener("click", closeEditModal);
+eventEditModalBackdrop.addEventListener("click", closeEditModal);
+
+eventEditForm.addEventListener("submit", async (evt) => {
+  evt.preventDefault();
+  const user = auth.currentUser;
+  if (!user) return;
+  const id = document.getElementById("event-edit-id").value;
+  const event = cachedEvents.find((e) => e.id === id);
+  if (!event || event.uid !== user.uid) return;
+
+  const dateValue = document.getElementById("event-edit-date").value;
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const latRaw = document.getElementById("event-edit-latitude").value;
+  const lonRaw = document.getElementById("event-edit-longitude").value;
+  const payload = {
+    title: document.getElementById("event-edit-title").value.trim(),
+    description: document.getElementById("event-edit-description").value.trim(),
+    date: Timestamp.fromDate(new Date(year, month - 1, day)),
+    type: document.getElementById("event-edit-type").value,
+    visibility: document.querySelector('#event-edit-form input[name="event-edit-visibility"]:checked').value,
+    collectionId: document.getElementById("event-edit-collection").value || null,
+    tags: document.getElementById("event-edit-tags").value.split(",").map((t) => t.trim()).filter(Boolean),
+    locationName: document.getElementById("event-edit-location-name").value.trim() || null,
+    latitude: latRaw ? Number(latRaw) : null,
+    longitude: lonRaw ? Number(lonRaw) : null,
+    updatedAt: serverTimestamp(),
+  };
+  try {
+    await updateDoc(doc(db, "life_events", id), payload);
+    eventEditStatus.textContent = "Saved.";
+    await fetchVisibleEvents();
+    closeEditModal();
+  } catch (err) {
+    console.error("[timeline] edit save failed:", err.code || err);
+    eventEditStatus.textContent = "Couldn't save — check console.";
   }
 });

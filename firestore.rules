@@ -57,6 +57,14 @@ service cloud.firestore {
       allow create: if canParticipate() && request.resource.data.uid == request.auth.uid;
     }
 
+    // Collections (v2.7): life-chapter containers that group existing records via
+    // collectionId, same shape/visibility model as journals/life_events/habits.
+    match /collections/{collectionId} {
+      allow read: if isMineOrPublic(resource.data);
+      allow update, delete: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create: if canParticipate() && request.resource.data.uid == request.auth.uid;
+    }
+
     // Career CMS (resume.html, nav-labeled "Career"): unlike the rest of the app, this is not
     // a per-uid multi-tenant space — the page has always been about one person — so writes are
     // Owner-only, not canParticipate()-gated. HR/Friends/Viewers only ever read public items.

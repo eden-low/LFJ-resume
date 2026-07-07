@@ -16,7 +16,7 @@ import {
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 import { ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-storage.js";
-import { getLang } from "./js/i18n.js";
+import { getLang, t as i18nT } from "./js/i18n.js";
 
 const authControl = document.getElementById("auth-control");
 
@@ -26,6 +26,34 @@ const authControl = document.getElementById("auth-control");
 function bi(obj, field) {
   const suffix = getLang() === "zh-CN" ? "_zh" : "_en";
   return obj[field + suffix] || obj[field + "_en"] || "";
+}
+
+// ---- Collections (v2.7): lets a project reference a life-chapter container, same
+// duplicated-per-page pattern used on gallery/journal/expenses/timeline. ----
+let cachedCollections = null;
+async function loadMyCollectionOptions() {
+  const user = auth.currentUser;
+  if (!user) return [];
+  if (cachedCollections) return cachedCollections;
+  try {
+    const snap = await getDocs(query(collection(db, "collections"), where("uid", "==", user.uid)));
+    cachedCollections = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.error("[career] collections fetch failed:", err.code || err);
+    cachedCollections = [];
+  }
+  return cachedCollections;
+}
+
+function collectionLabel(c) {
+  return (getLang() === "zh-CN" ? c.title_zh : c.title_en) || c.title_en || c.title_zh || "Untitled";
+}
+
+async function populateCollectionSelect(selectEl, selectedId) {
+  const cols = await loadMyCollectionOptions();
+  selectEl.innerHTML = `<option value="">${i18nT("common.uncategorized")}</option>` +
+    cols.map((c) => `<option value="${c.id}">${collectionLabel(c)}</option>`).join("");
+  selectEl.value = selectedId || "";
 }
 
 // ---- Fetch: same mine+public merge pattern as journals/timeline/habits. Career write access
@@ -290,7 +318,7 @@ function openProjectDetail(project) {
 document.getElementById("project-detail-close").addEventListener("click", () => document.getElementById("project-detail-modal").classList.add("hidden"));
 document.getElementById("project-detail-backdrop").addEventListener("click", () => document.getElementById("project-detail-modal").classList.add("hidden"));
 
-function openProjectForm(id) {
+async function openProjectForm(id) {
   const project = id ? cachedProjects.find((p) => p.id === id) : null;
   document.getElementById("project-form-id").value = id || "";
   document.getElementById("project-title-en").value = project?.title_en || "";
@@ -302,6 +330,8 @@ function openProjectForm(id) {
   document.getElementById("project-reflection-en").value = project?.reflection_en || "";
   document.getElementById("project-reflection-zh").value = project?.reflection_zh || "";
   document.getElementById("project-tech-stack").value = (project?.techStack || []).join(", ");
+  document.getElementById("project-tags").value = (project?.tags || []).join(", ");
+  await populateCollectionSelect(document.getElementById("project-collection"), project?.collectionId);
   document.getElementById("project-category").value = project?.category || "personal";
   document.getElementById("project-github-url").value = project?.githubUrl || "";
   document.getElementById("project-demo-url").value = project?.demoUrl || "";
@@ -350,6 +380,8 @@ document.getElementById("project-form").addEventListener("submit", async (event)
       reflection_en: document.getElementById("project-reflection-en").value.trim(),
       reflection_zh: document.getElementById("project-reflection-zh").value.trim(),
       techStack: document.getElementById("project-tech-stack").value.split(",").map((s) => s.trim()).filter(Boolean),
+      tags: document.getElementById("project-tags").value.split(",").map((s) => s.trim()).filter(Boolean),
+      collectionId: document.getElementById("project-collection").value || null,
       category: document.getElementById("project-category").value,
       githubUrl: document.getElementById("project-github-url").value.trim(),
       demoUrl: document.getElementById("project-demo-url").value.trim(),
