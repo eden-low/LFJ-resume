@@ -32,6 +32,7 @@ const timelineContainer = document.getElementById("timeline-container");
 const timelineEmpty = document.getElementById("timeline-empty");
 const filterTabs = document.querySelectorAll(".filter-tab");
 const privateTab = document.querySelector('.filter-tab[data-filter="private"]');
+const connectionsTab = document.querySelector('.filter-tab[data-filter="connections"]');
 const newEventBtn = document.getElementById("new-event-btn");
 const eventModal = document.getElementById("event-modal");
 const eventModalClose = document.getElementById("event-modal-close");
@@ -127,7 +128,7 @@ function matchesSearch(event, q) {
 function visibleEvents() {
   const q = searchQuery.trim().toLowerCase();
   return cachedEvents.filter((e) => {
-    if (activeFilter === "public" || activeFilter === "private") {
+    if (activeFilter === "public" || activeFilter === "private" || activeFilter === "connections") {
       if (e.visibility !== activeFilter) return false;
     } else if (activeFilter !== "all" && e.type !== activeFilter) {
       return false;
@@ -136,9 +137,15 @@ function visibleEvents() {
   });
 }
 
+function visibilityBadge(visibility) {
+  if (visibility === "private") return { icon: "fa-lock", cls: "border-rose-400/30 bg-rose-400/10 text-rose-400" };
+  if (visibility === "connections") return { icon: "fa-user-group", cls: "border-neonBlue/30 bg-neonBlue/10 text-neonBlue" };
+  return { icon: "fa-globe", cls: "border-emerald-400/30 bg-emerald-400/10 text-emerald-400" };
+}
+
 function eventRow(event) {
   const meta = TYPE_META[event.type] || TYPE_META.personal;
-  const isPrivate = event.visibility === "private";
+  const vis = visibilityBadge(event.visibility);
   const key = eventKey(event);
   const expanded = expandedIds.has(key);
 
@@ -159,8 +166,8 @@ function eventRow(event) {
           <span class="text-[10px] font-code px-2 py-0.5 rounded-full border ${meta.border} ${meta.bg} ${meta.text}">
             <i class="fa-solid ${meta.icon} mr-1"></i>${meta.label}
           </span>
-          <span class="text-[10px] font-code px-2 py-0.5 rounded-full border ${isPrivate ? "border-rose-400/30 bg-rose-400/10 text-rose-400" : "border-emerald-400/30 bg-emerald-400/10 text-emerald-400"}">
-            <i class="fa-solid ${isPrivate ? "fa-lock" : "fa-globe"}"></i>
+          <span class="text-[10px] font-code px-2 py-0.5 rounded-full border ${vis.cls}">
+            <i class="fa-solid ${vis.icon}"></i>
           </span>
           ${isMine ? `<button class="edit-event-btn text-textGray hover:text-neonPurple transition-colors" title="${i18nT("common.edit_metadata")}"><i class="fa-solid fa-pen text-xs"></i></button>` : ""}
         </div>
@@ -263,8 +270,9 @@ async function fetchVisibleEvents() {
 
   const mayParticipate = canParticipate();
   privateTab.classList.toggle("hidden", !mayParticipate);
+  connectionsTab.classList.toggle("hidden", !mayParticipate);
   accessNote.classList.toggle("hidden", mayParticipate);
-  if (!mayParticipate && activeFilter === "private") setFilter("all");
+  if (!mayParticipate && (activeFilter === "private" || activeFilter === "connections")) setFilter("all");
 
   const list = [...events.values()];
   list.sort((a, b) => (b.date?.toMillis?.() || 0) - (a.date?.toMillis?.() || 0));
@@ -282,8 +290,9 @@ function renderSignedOut() {
   });
   accessNote.classList.add("hidden");
   privateTab.classList.add("hidden");
+  connectionsTab.classList.add("hidden");
   newEventBtn.classList.add("hidden");
-  if (activeFilter === "private") setFilter("all");
+  if (activeFilter === "private" || activeFilter === "connections") setFilter("all");
 }
 
 async function renderSignedIn(user) {

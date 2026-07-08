@@ -105,6 +105,7 @@ const feedContainer = document.getElementById("feed-container");
 const feedEmpty = document.getElementById("feed-empty");
 const filterTabs = document.querySelectorAll(".filter-tab");
 const privateTab = document.querySelector('.filter-tab[data-filter="private"]');
+const connectionsTab = document.querySelector('.filter-tab[data-filter="connections"]');
 const newPostBtn = document.getElementById("new-post-btn");
 const postModal = document.getElementById("post-modal");
 const postModalClose = document.getElementById("post-modal-close");
@@ -142,9 +143,15 @@ function isMyPost(post, user) {
   return !!user && (post.uid === user.uid || post.uploadedBy === user.uid);
 }
 
+function visibilityBadge(visibility) {
+  if (visibility === "private") return { icon: "fa-lock", cls: "border-rose-400/30 bg-rose-400/10 text-rose-400", label: i18nT("common.private") };
+  if (visibility === "connections") return { icon: "fa-user-group", cls: "border-neonBlue/30 bg-neonBlue/10 text-neonBlue", label: i18nT("common.connections") };
+  return { icon: "fa-globe", cls: "border-emerald-400/30 bg-emerald-400/10 text-emerald-400", label: i18nT("common.public") };
+}
+
 function postCard(post) {
   const meta = CATEGORY_META[albumOf(post)] || CATEGORY_META.dailylife;
-  const isPrivate = post.visibility === "private";
+  const vis = visibilityBadge(post.visibility);
   const user = auth.currentUser;
   const isMine = isMyPost(post, user);
   const commentsOpen = expandedComments.has(post.id);
@@ -162,8 +169,8 @@ function postCard(post) {
       ${post.caption ? `<p class="text-sm text-white">${post.caption}</p>` : ""}
       <div class="flex flex-wrap items-center gap-2 text-[10px] font-code">
         <span class="px-2 py-0.5 rounded-full border ${meta.border} ${meta.bg} ${meta.text}">${i18nT(meta.i18nKey)}</span>
-        <span class="px-2 py-0.5 rounded-full border ${isPrivate ? "border-rose-400/30 bg-rose-400/10 text-rose-400" : "border-emerald-400/30 bg-emerald-400/10 text-emerald-400"}">
-          <i class="fa-solid ${isPrivate ? "fa-lock" : "fa-globe"} mr-1"></i>${isPrivate ? i18nT("common.private") : i18nT("common.public")}
+        <span class="px-2 py-0.5 rounded-full border ${vis.cls}">
+          <i class="fa-solid ${vis.icon} mr-1"></i>${vis.label}
         </span>
         ${isMine ? `<span class="px-2 py-0.5 rounded-full border border-borderNeon bg-darkBg/60 text-textGray">me</span>` : ""}
         ${(post.tags || []).map((t) => `<span class="px-2 py-0.5 rounded-full border border-borderNeon bg-darkBg/40 text-textGray">#${t}</span>`).join("")}
@@ -219,7 +226,7 @@ function postCard(post) {
 function renderFeed() {
   const visible = activeFilter === "all"
     ? cachedPosts
-    : activeFilter === "public" || activeFilter === "private"
+    : activeFilter === "public" || activeFilter === "private" || activeFilter === "connections"
       ? cachedPosts.filter((p) => p.visibility === activeFilter)
       : activeFilter === "featured"
         ? cachedPosts.filter((p) => p.featured)
@@ -359,8 +366,9 @@ function renderSignedOut() {
   });
   accessNote.classList.add("hidden");
   privateTab.classList.add("hidden");
+  connectionsTab.classList.add("hidden");
   newPostBtn.classList.add("hidden");
-  if (activeFilter === "private") setActiveTab("all");
+  if (activeFilter === "private" || activeFilter === "connections") setActiveTab("all");
 }
 
 async function renderSignedIn(user) {
@@ -376,8 +384,9 @@ async function renderSignedIn(user) {
   newPostBtn.classList.toggle("hidden", !mayParticipate);
   selectModeBtn.classList.toggle("hidden", !mayParticipate);
   privateTab.classList.toggle("hidden", !mayParticipate);
+  connectionsTab.classList.toggle("hidden", !mayParticipate);
   accessNote.classList.toggle("hidden", mayParticipate);
-  if (!mayParticipate && activeFilter === "private") setActiveTab("all");
+  if (!mayParticipate && (activeFilter === "private" || activeFilter === "connections")) setActiveTab("all");
   maybeAutoOpenFromQuickAdd(mayParticipate);
 }
 

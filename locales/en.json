@@ -44,6 +44,10 @@
     "sign_out": "Sign Out",
     "public": "Public",
     "private": "Private",
+    "connections": "Connections",
+    "accept": "Accept",
+    "decline": "Decline",
+    "this_space_is_private": "This space is private.",
     "none_yet": "Nothing here yet.",
     "tags": "Tags",
     "location": "Location",
@@ -81,7 +85,7 @@
     "year_ago": "1 year ago"
   },
   "footer": {
-    "line": "EdenAtlas · by Jun · Version 3.0"
+    "line": "EdenAtlas · by Jun · Version 3.2"
   },
   "home": {
     "greeting_morning": "Good Morning",
@@ -262,12 +266,22 @@
     "recommended": "Recommended Connections",
     "recommended_subtitle": "Recently joined people you can connect with.",
     "no_recommendations": "No one to recommend just yet.",
-    "your_connections": "Your Connections",
-    "no_connections": "No connections yet. Invite someone you trust to share part of your journey.",
-    "requests": "Connection Requests",
-    "requests_placeholder": "Coming soon — you'll be able to send and receive connection requests here.",
-    "connect": "Connect",
-    "connect_sent": "Requested",
+    "my_friends": "My Friends",
+    "no_connections": "No friends yet. Invite someone you trust to share part of your journey.",
+    "friend_requests": "Friend Requests",
+    "incoming_requests": "Incoming Requests",
+    "no_incoming_requests": "No pending requests right now.",
+    "sent_requests": "Sent Requests",
+    "no_sent_requests": "You haven't sent any requests yet.",
+    "add_friend": "Add Friend",
+    "friend": "Friend",
+    "friends": "Friends",
+    "pending": "Pending",
+    "request_sent": "Request sent",
+    "request_accepted": "Request accepted",
+    "remove_friend": "Remove Friend",
+    "remove_friend_confirm": "Remove this friend? They'll lose access to anything you've shared with friends only.",
+    "respond_in_requests": "Sent you a request — respond below",
     "open_profile": "Open Profile",
     "owner_badge": "Owner",
     "collection": "collection",
@@ -424,7 +438,11 @@
     "subtitle": "System alerts, checked as of your last visit to each page — not real-time push.",
     "mark_all_read": "Mark all read",
     "no_notifications": "You're all caught up.",
-    "owner_only": "Notifications are only available to the account owner."
+    "view": "View",
+    "friend_request_title": "Friend request",
+    "friend_request_message": "{name} wants to connect with you.",
+    "friend_accepted_title": "Friend request accepted",
+    "friend_accepted_message": "{name} accepted your friend request."
   },
   "settings": {
     "title": "Settings",
@@ -444,7 +462,7 @@
     "tagline": "Your life, beautifully organized.",
     "continue_google": "Continue with Google",
     "privacy": "Your data stays private — only you decide what to share.",
-    "footer_line": "Built by Jun · Version 3.0"
+    "footer_line": "Built by Jun · Version 3.2"
   },
   "splash": {
     "message": "Opening your atlas…"

@@ -3,7 +3,7 @@
 // only (`hidden md:flex`) — mobile keeps its existing top bar/drawer/bottom-nav from
 // mobile-nav.js untouched. Replaces the old horizontal top-nav, which is now permanently
 // hidden (see the sitewide `<header class="hidden ...">` → `<header class="hidden">` pass).
-import { auth } from "../firebase-init.js";
+import { auth, getUserMode } from "../firebase-init.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import { getLang, setLang, init as initI18n, applyTranslations } from "./i18n.js";
 
@@ -38,6 +38,21 @@ const SECONDARY_LINKS = [
   { href: "contact.html", icon: "mail", key: "nav.contact", label: "Contact" },
 ];
 
+// v3.2 "Light EdenAtlas": non-owner (Friend or Viewer) navigation — Career/Finance/Reports/
+// Time Capsule/Constellation (owner-heavy modules) are hidden from nav entirely, not deleted
+// (direct URLs still work, backstopped by auth-guard.js's data-owner-only redirect). One flat
+// list, no primary/secondary split — short enough not to need it.
+const LIGHT_LINKS = [
+  { href: "index.html", icon: "home", key: "nav.home", label: "Home" },
+  { href: "gallery.html", icon: "image", key: "nav.memories", label: "Memories" },
+  { href: "atlas.html", icon: "map", key: "nav.atlas", label: "Atlas" },
+  { href: "journal.html", icon: "book-open", key: "nav.journal", label: "Journal" },
+  { href: "calendar.html", icon: "calendar-days", key: "nav.calendar", label: "Calendar" },
+  { href: "dashboard.html", icon: "users", key: "nav.people", label: "Connections" },
+  { href: "notifications.html", icon: "bell", key: "nav.inbox", label: "Inbox" },
+  { href: "habits.html", icon: "list-checks", key: "nav.habits", label: "Habits" },
+];
+
 const here = location.pathname.split("/").pop() || "index.html";
 let collapsed = localStorage.getItem(COLLAPSE_KEY) === "1";
 let injected = false;
@@ -58,9 +73,12 @@ function navRow(item) {
   return a;
 }
 
-function sidebarHTML() {
-  const primary = PRIMARY_LINKS.map((item) => navRow(item).outerHTML).join("");
-  const secondary = SECONDARY_LINKS.map((item) => navRow(item).outerHTML).join("");
+function sidebarHTML(isOwnerRole) {
+  const navHTML = isOwnerRole
+    ? `${PRIMARY_LINKS.map((item) => navRow(item).outerHTML).join("")}
+       <div class="my-2 border-t border-borderNeon/40"></div>
+       ${SECONDARY_LINKS.map((item) => navRow(item).outerHTML).join("")}`
+    : LIGHT_LINKS.map((item) => navRow(item).outerHTML).join("");
   return `
     <aside id="eden-sidebar" class="hidden md:flex flex-col fixed left-0 inset-y-0 z-30 bg-cardBg/90 backdrop-blur-md border-r border-borderNeon" style="width:var(--sidebar-w)">
       <div class="flex items-center gap-2.5 px-4 h-16 flex-shrink-0 border-b border-borderNeon/60">
@@ -70,9 +88,7 @@ function sidebarHTML() {
         <span class="eden-sidebar-label font-cyber font-semibold text-sm tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-neonPurple truncate">EdenAtlas</span>
       </div>
       <nav class="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5">
-        ${primary}
-        <div class="my-2 border-t border-borderNeon/40"></div>
-        ${secondary}
+        ${navHTML}
       </nav>
       <div class="px-2.5 py-3 border-t border-borderNeon/60 space-y-0.5 flex-shrink-0">
         <div class="eden-sidebar-lang-row flex items-center justify-between px-3 py-1.5 mb-1">
@@ -101,7 +117,7 @@ function injectUI() {
   if (!anchor) return;
   injected = true;
 
-  document.body.insertAdjacentHTML("afterbegin", sidebarHTML());
+  document.body.insertAdjacentHTML("afterbegin", sidebarHTML(getUserMode() === "OWNER"));
   applyWidth();
 
   document.getElementById("eden-sidebar-logout").addEventListener("click", async () => {

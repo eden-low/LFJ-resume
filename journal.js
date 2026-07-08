@@ -38,6 +38,7 @@ const journalGrid = document.getElementById("journal-grid");
 const journalEmpty = document.getElementById("journal-empty");
 const filterTabs = document.querySelectorAll(".filter-tab");
 const privateTab = document.querySelector('.filter-tab[data-filter="private"]');
+const connectionsTab = document.querySelector('.filter-tab[data-filter="connections"]');
 const moodFilterContainer = document.getElementById("mood-filters");
 const newJournalBtn = document.getElementById("new-journal-btn");
 const journalModal = document.getElementById("journal-modal");
@@ -193,9 +194,15 @@ async function checkJournalReminder(entries) {
   }
 }
 
+function visibilityBadge(visibility) {
+  if (visibility === "private") return { icon: "fa-lock", cls: "border-rose-400/30 bg-rose-400/10 text-rose-400" };
+  if (visibility === "connections") return { icon: "fa-user-group", cls: "border-neonBlue/30 bg-neonBlue/10 text-neonBlue" };
+  return { icon: "fa-globe", cls: "border-emerald-400/30 bg-emerald-400/10 text-emerald-400" };
+}
+
 function journalCard(entry) {
   const mood = MOOD_META[entry.mood] || null;
-  const isPrivate = entry.visibility === "private";
+  const vis = visibilityBadge(entry.visibility);
   const key = entryKey(entry);
   const expanded = expandedIds.has(key);
 
@@ -215,8 +222,8 @@ function journalCard(entry) {
       <div class="flex items-start justify-between gap-3">
         <h2 class="text-sm font-semibold leading-snug">${mood ? `${mood.emoji} ` : ""}${entry.title}</h2>
         <div class="flex items-center gap-1.5 flex-shrink-0">
-          <span class="text-[10px] font-code px-2 py-0.5 rounded-full border ${isPrivate ? "border-rose-400/30 bg-rose-400/10 text-rose-400" : "border-emerald-400/30 bg-emerald-400/10 text-emerald-400"}">
-            <i class="fa-solid ${isPrivate ? "fa-lock" : "fa-globe"}"></i>
+          <span class="text-[10px] font-code px-2 py-0.5 rounded-full border ${vis.cls}">
+            <i class="fa-solid ${vis.icon}"></i>
           </span>
           ${isMine ? `<button class="edit-entry-btn text-textGray hover:text-neonPurple transition-colors" title="${i18nT("common.edit_metadata")}"><i class="fa-solid fa-pen text-xs"></i></button>` : ""}
         </div>
@@ -321,8 +328,9 @@ async function fetchVisibleEntries() {
 
   const mayParticipate = canParticipate();
   privateTab.classList.toggle("hidden", !mayParticipate);
+  connectionsTab.classList.toggle("hidden", !mayParticipate);
   accessNote.classList.toggle("hidden", mayParticipate);
-  if (!mayParticipate && activeVisibility === "private") setVisibilityFilter("all");
+  if (!mayParticipate && (activeVisibility === "private" || activeVisibility === "connections")) setVisibilityFilter("all");
 
   const list = [...entries.values()];
   list.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
@@ -341,8 +349,9 @@ function renderSignedOut() {
   });
   accessNote.classList.add("hidden");
   privateTab.classList.add("hidden");
+  connectionsTab.classList.add("hidden");
   newJournalBtn.classList.add("hidden");
-  if (activeVisibility === "private") setVisibilityFilter("all");
+  if (activeVisibility === "private" || activeVisibility === "connections") setVisibilityFilter("all");
 }
 
 async function renderSignedIn(user) {

@@ -62,6 +62,20 @@ Review** — template-based (no AI) warm-prose recaps built from your own existi
 a Markdown export. Both new collections are owner-uid-only in `firestore.rules`, never exposed
 via `isMineOrPublic()`, and never surfaced on public profiles, Connections, or Collections.
 
+**v3.2 ("Trusted Connections")** turns **Connections** from a role-based directory/placeholder
+into a real, mutual-consent friend-request graph (`friend_requests`/`friendships`, entirely
+separate from the Owner/Friend/Viewer role system below), and adds a third `visibility:
+"connections"` tier — private/connections/public — to Memories/Journal/Journey/Collections
+(never Finance/Time Capsule/Daily Reflection/Career, which stay exactly as private/owner-only as
+before). The accept flow needs no transaction or Cloud Function: every write is scoped to the
+caller's own uid, and each side's friendship-mirror doc self-heals lazily on next load. Connections
+gained **Friend Requests** and **Sent Requests** sections alongside a **My Friends** list now
+sourced from real acceptances (not just "everyone your role can see"); `profile.html` merges in
+connections-tier content for accepted friends but deliberately stays single-scroll, not rebuilt
+into tabs. Desktop/mobile navigation is now role-aware — non-owners get a shorter "Light EdenAtlas"
+link set, with owner-only pages redirecting non-owners on direct access. See `CLAUDE.md`'s
+"EdenAtlas v3.2" history section for the full design.
+
 ## Roles
 
 - **Owner** (`jjun8647@gmail.com`) — full access everywhere, plus the only role that sees System Logs and Whitelist Management in Me → Connections/System Logs.
@@ -69,6 +83,10 @@ via `isMineOrPublic()`, and never surfaced on public profiles, Connections, or C
 - **Viewer** — anyone else who signs in with Google. Read-only: sees public content from the owner and any friend, can like/comment on public gallery posts, but can't create anything of their own.
 
 Nobody is ever signed out or blocked at login — everyone gets in, access just scales with role.
+This role system decides CRUD permissions and profile discoverability; it's independent of the
+**friend graph** (v3.2) that separately decides whether `visibility: "connections"` content is
+shown to a specific accepted friend once a profile is reachable at all — see the v3.2 paragraph
+above.
 
 ## Pages
 
@@ -83,15 +101,15 @@ original build to avoid a risky site-wide route rename (see the Brand & navigati
 | Home | [index.html](index.html) | A daily-habit landing page, not a dashboard: a time-of-day greeting + live clock + weather, a **Today** strip (habits/spending/journal/photos/notifications), an "On This Day" **Memories** flashback, **Recent Memories** (latest photo/journal/timeline events), a **This Month** recap, and **Quick Actions** (add an expense/journal entry/photo without leaving the page) |
 | Career | [resume.html](resume.html) | HR-friendly Career CMS — Profile/Highlights/Education/Leadership sections stay static; **Experience**, **Projects** (with Featured strip + detail modal + Reflection), **Certificates**, and **Awards** are Firestore-backed and owner-editable, everyone else sees public items read-only. See [Career CMS](#career-cms-careerjs) below |
 | Memories | [gallery.html](gallery.html) | Instagram-style feed — your own photos (any visibility) plus everyone's public ones, organized into albums (Travel/Projects/Events/Daily Life) plus a cross-cutting Favorites star; likes, comments, and per-post view analytics visible only to that post's own creator; owner can edit a post's caption/album/collection/tags/location/visibility after the fact, and bulk-move several photos into a Collection at once |
-| Atlas | [atlas.html](atlas.html) | A Leaflet.js + CARTO-tiles map of every place your Memories/Journal/Journey carry a location for — **My Atlas** (your own, any visibility) and **Connections** (lazy-loaded, public-only, rounded coordinates, capped to 100 recent items, never expenses) segmented tabs; clicking a pin opens a location detail panel. Its "Collections" tab is the only nav entry point into `collections.html` |
+| Atlas | [atlas.html](atlas.html) | A Leaflet.js + CARTO-tiles map of every place your Memories/Journal/Journey carry a location for — **My Atlas** (your own, any visibility) and **Connections** (lazy-loaded; public content, rounded coordinates, capped to 100 recent items, plus, as of v3.2, `visibility: "connections"` items from your real accepted friends — never expenses) segmented tabs; clicking a pin opens a location detail panel. Its "Collections" tab is the only nav entry point into `collections.html` |
 | Journal | [journal.html](journal.html) | Daily journal — markdown entries with mood + tags, optional image, optional location; your own entries plus everyone's public ones; owner can edit an entry's metadata after the fact |
 | Finance | [expenses.html](expenses.html) | Personal spend tracker — always private, never shared; daily-spending and by-category Chart.js charts; owner can edit amount/category/note/date/collection/tags after the fact |
 | Journey | [timeline.html](timeline.html) | Life events grouped by year — your own events plus everyone's public ones; owner can edit an event's metadata (incl. location) after the fact. Reachable from the sidebar's secondary group now that Atlas is the larger location/chapter module |
 | Habits | [habits.html](habits.html) | Habit tracker — daily check-ins, streaks, a 7-day weekly strip, and a monthly completion ring per habit |
 | Calendar | [calendar.html](calendar.html) | Monthly 7-column grid of your own expenses/photos/journal entries, bucketed by day |
 | Reports | [reports.html](reports.html) | Monthly recap of your own activity — total spend, top category, weekday-vs-weekend spending comparison, photo/journal counts |
-| Connections | [dashboard.html](dashboard.html) | Apple Contacts-style discovery (v2.8): Search, **Recommended Connections**, **Your Connections**, and a **Connection Requests** placeholder, with richer cards (bio/location/public Collections count) linking to `profile.html` — personal analytics/Goals/Achievements stay on **Me** (moved there in v2.7) |
-| (search result only) | [profile.html](profile.html) | Read-only GitHub+Instagram-style profile (`?uid=`) opened from Connections — avatar/name/@username/bio/location/joined date, public stats (incl. habit completion %), **Career** (public items, v2.8), photo **Albums** (Travel/Projects/Events/Daily Life/Favorites), **Public Atlas** (a location-name summary linking to Atlas, v2.8), public Timeline/Journal lists, and public Achievement badges — all public content only, nothing editable. Not in the nav — only reachable via a search result, same as `login.html` |
+| Connections | [dashboard.html](dashboard.html) | A real friend-request system as of v3.2: Search People (role-gated discovery, unchanged), **Friend Requests** (incoming, Accept/Decline), **My Friends** (real accepted friendships), and **Sent Requests** — richer cards (bio/location/public Collections count) link to `profile.html` — personal analytics/Goals/Achievements stay on **Me** (moved there in v2.7) |
+| (search result only) | [profile.html](profile.html) | Read-only GitHub+Instagram-style profile (`?uid=`) opened from Connections — avatar/name/@username/bio/location/joined date, public stats (incl. habit completion %), **Career** (public items, v2.8), photo **Albums** (Travel/Projects/Events/Daily Life/Favorites), **Public Atlas** (a location-name summary linking to Atlas, v2.8), public Timeline/Journal lists, and public Achievement badges — public content plus, as of v3.2, `visibility: "connections"` content when you're an accepted friend of the profile owner; nothing editable. Not in the nav — only reachable via a search result, same as `login.html` |
 | Inbox | [notifications.html](notifications.html) | Your own notification center — login/expense/journal/habit/gallery alerts, unread badge in the nav, mark-as-read |
 | Contact | [contact.html](contact.html) | Email / phone / location, with a one-click "send message" CTA |
 | (via Atlas) | [collections.html](collections.html) / [collection-detail.html](collection-detail.html) | **Collections** — life chapters (e.g. "Japan Trip") that group existing Memories/Journal/Finance/Journey/Career records via a `collectionId` reference, never a copy. List page: create/edit/delete (blocked while non-empty) with per-type item counts; detail page: cover/title/description/visibility header, one section per record type plus a Reflection/Notes field, and a synthetic "Uncategorized" view for anything with no collection |
@@ -256,7 +274,7 @@ Available to any signed-in user from Settings ([export.js](export.js)) — downl
 
 ## Connections
 
-[dashboard.js](dashboard.js) (nav-labeled "Connections" since v2.7, redesigned in v2.8) fetches the `users` directory once, then role-filters it the same way it always has (a Viewer only finds the Owner; a Friend or the Owner finds the Owner and any Friend) into three views: a live **Search** that takes over the page while typing, a **Recommended Connections** strip (the four most recently joined people you can see), and **Your Connections** (everyone else you can see, alphabetical). A **Connection Requests** section is a static placeholder — no request/follow graph exists in Firestore. Each card shows avatar/name/@username/bio/location/public-Collections-count and links to [profile.html](profile.html), a dedicated read-only profile page — never an inline summary. Gallery/Expense/Journal analytics, Goals, and Achievements moved to [me.html](me.html)'s Overview tab in v2.7 (they used to live here).
+[dashboard.js](dashboard.js) (nav-labeled "Connections" since v2.7, redesigned in v2.8, now backed by a real friend graph as of v3.2) fetches the `users` directory once, then role-filters it the same way it always has (a Viewer only finds the Owner; a Friend or the Owner finds the Owner and any Friend) for a live **Search** that takes over the page while typing, and a **Recommended Connections** strip (the four most recently joined people you can see) for discovery. Below that, four v3.2 sections run on a real `friend_requests`/`friendships` graph (entirely separate from the role system — see the Roles section above): **Friend Requests** (incoming pending, Accept/Decline), **My Friends** (real accepted friendships — replaces the old "everyone your role can see" list), and **Sent Requests** (pending requests you've sent, found by checking each candidate in the already-fetched directory — no new collection needed). Each card shows avatar/name/@username/bio/location/public-Collections-count and links to [profile.html](profile.html), a dedicated read-only profile page — never an inline summary, never email. Gallery/Expense/Journal analytics, Goals, and Achievements moved to [me.html](me.html)'s Overview tab in v2.7 (they used to live here).
 
 ## Me: personal control center
 
@@ -270,9 +288,12 @@ Dashboard→People, and as of v2.7, People→Connections, Settings→Me) but **f
 deliberately left unchanged** to avoid the risk of a site-wide route rename (broken bookmarks,
 PWA cache, internal links) for a purely cosmetic win — `dashboard.html` is "Connections" and
 `settings.html` is now a redirect to the new `me.html`. Every page footer reads
-`EdenAtlas · by Jun · Version 3.0` as of this pass (`login.html`'s footer is a stacked
-EdenAtlas / Built by Jun / Version 3.0 layout instead, part of its v2.8 rebuild; every other
-page kept its existing single-line layout and just had the version number bumped).
+`EdenAtlas · by Jun · Version 3.2` as of this pass (`login.html`'s footer is a stacked
+EdenAtlas / Built by Jun / Version 3.2 layout instead, part of its v2.8 rebuild; every other
+page kept its existing single-line layout and just had the version number bumped). Desktop/mobile
+navigation (`js/sidebar.js`/`js/mobile-nav.js`) is role-aware as of v3.2 — non-owners see a
+shorter "Light EdenAtlas" link set with Career/Finance/Reports/Time Capsule/Constellation removed;
+those pages aren't deleted, just no longer linked, and redirect a non-owner away on direct access.
 
 ## Structure notes
 

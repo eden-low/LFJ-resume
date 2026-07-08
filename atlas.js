@@ -54,6 +54,31 @@ async function fetchAllPublic(name) {
   }
 }
 
+// v3.2: connections-tier items from one specific accepted friend — scoped by `uid==friendUid`,
+// matching firestore.rules' isAcceptedFriend() provability requirement (a bare
+// `visibility=='connections'` query with no uid pin would be rejected).
+async function fetchConnectionsFor(name, friendUid) {
+  try {
+    const snap = await getDocs(query(collection(db, name), where("uid", "==", friendUid), where("visibility", "==", "connections")));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.error(`[atlas] ${name} connections query failed for ${friendUid}:`, err.code || err);
+    return [];
+  }
+}
+
+async function loadMyFriendUids() {
+  const user = auth.currentUser;
+  if (!user) return [];
+  try {
+    const snap = await getDocs(collection(db, "friendships", user.uid, "friends"));
+    return snap.docs.map((d) => d.id);
+  } catch (err) {
+    console.error("[atlas] friendships fetch failed:", err.code || err);
+    return [];
+  }
+}
+
 async function mergeMinePublic(name) {
   const user = auth.currentUser;
   const resultMap = new Map();
@@ -137,7 +162,23 @@ async function loadConnectionsClusters() {
   const inScope = (item) => allowedUids.has(item.uid);
   const recent = (list) => list.filter(inScope).sort((a, b) => itemMillis(b) - itemMillis(a)).slice(0, 100);
 
-  connectionsClusters = clusterItems(recent(photos), recent(journals), recent(events), 2);
+  // v3.2: layer in connections-tier items from my real accepted friends (a separate, stricter
+  // graph than the role-based `allowedUids` above — see CLAUDE.md's v3.2 section). One scoped
+  // query per friend, bounded by friend count, same "many small equality queries" style as the
+  // rest of this function.
+  const friendUids = await loadMyFriendUids();
+  const [connPhotos, connJournals, connEvents] = await Promise.all([
+    Promise.all(friendUids.map((uid) => fetchConnectionsFor("photos", uid))),
+    Promise.all(friendUids.map((uid) => fetchConnectionsFor("journals", uid))),
+    Promise.all(friendUids.map((uid) => fetchConnectionsFor("life_events", uid))),
+  ]);
+
+  connectionsClusters = clusterItems(
+    recent(photos).concat(...connPhotos),
+    recent(journals).concat(...connJournals),
+    recent(events).concat(...connEvents),
+    2
+  );
   return connectionsClusters;
 }
 

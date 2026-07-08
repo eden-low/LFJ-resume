@@ -142,8 +142,9 @@
           <textarea id="collection-notes" rows="3" class="w-full bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-sm text-white"></textarea>
         </div>
         <div class="flex items-center gap-4 text-xs font-code text-textGray">
-          <label class="flex items-center gap-1.5"><input type="radio" name="collection-visibility" value="public" checked> Public</label>
-          <label class="flex items-center gap-1.5"><input type="radio" name="collection-visibility" value="private"> Private</label>
+          <label class="flex items-center gap-1.5"><input type="radio" name="collection-visibility" value="public" checked> <span data-i18n="common.public">Public</span></label>
+          <label class="flex items-center gap-1.5"><input type="radio" name="collection-visibility" value="connections"> <span data-i18n="common.connections">Connections</span></label>
+          <label class="flex items-center gap-1.5"><input type="radio" name="collection-visibility" value="private"> <span data-i18n="common.private">Private</span></label>
         </div>
         <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all">
           SAVE
@@ -156,7 +157,7 @@
   <script type="module" src="js/splash.js"></script>
     <script type="module" src="js/i18n.js"></script>
   <footer class="max-w-7xl mx-auto px-4 mt-10 pb-6 text-center">
-    <p class="text-[11px] font-code text-textGray/70" data-i18n="footer.line">EdenAtlas &middot; by Jun &middot; Version 3.0</p>
+    <p class="text-[11px] font-code text-textGray/70" data-i18n="footer.line">EdenAtlas &middot; by Jun &middot; Version 3.2</p>
   </footer>
 
   <script src="scripts.js" defer></script>

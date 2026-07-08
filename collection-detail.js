@@ -221,10 +221,14 @@ function renderHeader(c, isOwner) {
   if (isUncategorized) {
     badge.classList.add("hidden");
   } else {
-    const isPrivate = c.visibility === "private";
+    const vis = c.visibility === "private"
+      ? { icon: "fa-lock", cls: "border-rose-400/30 bg-rose-400/10 text-rose-400" }
+      : c.visibility === "connections"
+        ? { icon: "fa-user-group", cls: "border-neonBlue/30 bg-neonBlue/10 text-neonBlue" }
+        : { icon: "fa-globe", cls: "border-emerald-400/30 bg-emerald-400/10 text-emerald-400" };
     badge.classList.remove("hidden");
-    badge.className = `text-[10px] font-code px-2 py-0.5 rounded-full border ${isPrivate ? "border-rose-400/30 bg-rose-400/10 text-rose-400" : "border-emerald-400/30 bg-emerald-400/10 text-emerald-400"}`;
-    badge.innerHTML = `<i class="fa-solid ${isPrivate ? "fa-lock" : "fa-globe"}"></i>`;
+    badge.className = `text-[10px] font-code px-2 py-0.5 rounded-full border ${vis.cls}`;
+    badge.innerHTML = `<i class="fa-solid ${vis.icon}"></i>`;
   }
 
   const editBtn = document.getElementById("edit-collection-btn");

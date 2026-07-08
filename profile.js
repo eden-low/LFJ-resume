@@ -95,13 +95,42 @@ function renderHeader(person) {
     </div>`;
 }
 
-async function fetchPublicFor(collectionName, uid) {
+async function fetchByVisibility(collectionName, uid, visibility) {
   try {
-    const snap = await getDocs(query(collection(db, collectionName), where("uid", "==", uid), where("visibility", "==", "public")));
+    const snap = await getDocs(query(collection(db, collectionName), where("uid", "==", uid), where("visibility", "==", visibility)));
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (err) {
-    console.error(`[profile] public ${collectionName} for ${uid} failed:`, err.code || err);
+    console.error(`[profile] ${visibility} ${collectionName} for ${uid} failed:`, err.code || err);
     return [];
+  }
+}
+
+// v3.2: public content is visible to anyone who can view the profile at all; connections-tier
+// content only merges in when the viewer is one of this target's accepted friends (see
+// isAcceptedFriendOfTarget below) — each query is scoped to `uid==target`, matching
+// firestore.rules' isMineOrPublic()/isAcceptedFriend() provability requirement.
+async function fetchVisibleFor(collectionName, uid, includeConnections) {
+  const [pub, connections] = await Promise.all([
+    fetchByVisibility(collectionName, uid, "public"),
+    includeConnections ? fetchByVisibility(collectionName, uid, "connections") : Promise.resolve([]),
+  ]);
+  const merged = new Map();
+  pub.forEach((d) => merged.set(d.id, d));
+  connections.forEach((d) => merged.set(d.id, d));
+  return [...merged.values()];
+}
+
+// One getDoc against the target's own friendships subcollection — readable by either side per
+// firestore.rules (`friendships/{uid}/friends/{friendUid}`: read if auth.uid==uid||friendUid).
+async function isAcceptedFriendOfTarget(targetUid) {
+  const me = auth.currentUser;
+  if (!me || me.uid === targetUid) return false;
+  try {
+    const snap = await getDoc(doc(db, "friendships", targetUid, "friends", me.uid));
+    return snap.exists();
+  } catch (err) {
+    console.error("[profile] friendship check failed:", err.code || err);
+    return false;
   }
 }
 
@@ -547,13 +576,17 @@ async function loadProfile() {
     return;
   }
 
+  // Friend-Profile View (v3.2): connections-tier Memories/Journal/Journey merge in only for an
+  // accepted friend of this specific profile — Career/Achievements/Recent Activity stay derived
+  // from whatever photos/journals/events end up in scope, no separate gating needed for them.
+  const isFriend = await isAcceptedFriendOfTarget(targetUid);
   const [photos, journals, events, habits, careerExperiences, careerProjects] = await Promise.all([
-    fetchPublicFor("photos", targetUid),
-    fetchPublicFor("journals", targetUid),
-    fetchPublicFor("life_events", targetUid),
-    fetchPublicFor("habits", targetUid),
-    fetchPublicFor("career_experiences", targetUid),
-    fetchPublicFor("career_projects", targetUid),
+    fetchVisibleFor("photos", targetUid, isFriend),
+    fetchVisibleFor("journals", targetUid, isFriend),
+    fetchVisibleFor("life_events", targetUid, isFriend),
+    fetchVisibleFor("habits", targetUid, false),
+    fetchByVisibility("career_experiences", targetUid, "public"),
+    fetchByVisibility("career_projects", targetUid, "public"),
   ]);
   photos.sort((a, b) => (b.uploadedAt?.toMillis?.() || 0) - (a.uploadedAt?.toMillis?.() || 0));
   allPublicPhotos = photos;

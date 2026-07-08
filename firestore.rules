@@ -13,14 +13,27 @@ service cloud.firestore {
     function canParticipate() {
       return isOwner() || isFriend();
     }
+    // v3.2: mutual-consent friend graph (friend_requests/friendships below) — distinct from the
+    // legacy isFriend() whitelist role-check above (kept a different name to avoid shadowing it).
+    // True once `ownerUid` has accepted the caller into friendships/{ownerUid}/friends/{caller}.
+    function isAcceptedFriend(ownerUid) {
+      return request.auth != null
+             && exists(/databases/$(database)/documents/friendships/$(ownerUid)/friends/$(request.auth.uid));
+    }
     function isMineOrPublic(data) {
-      return request.auth != null && (data.uid == request.auth.uid || data.visibility == 'public');
+      return request.auth != null && (
+        data.uid == request.auth.uid
+        || data.visibility == 'public'
+        || (data.visibility == 'connections' && isAcceptedFriend(data.uid))
+      );
     }
     // Same as isMineOrPublic, plus a fallback to the pre-v2.0 `uploadedBy` field so photos
     // created before the `uid` rename still read/update correctly without a data migration.
     function isPhotoMineOrPublic(data) {
       return request.auth != null
-             && (data.uid == request.auth.uid || data.uploadedBy == request.auth.uid || data.visibility == 'public');
+             && (data.uid == request.auth.uid || data.uploadedBy == request.auth.uid
+                 || data.visibility == 'public'
+                 || (data.visibility == 'connections' && isAcceptedFriend(data.uid)));
     }
     function canReadPost(photoId) {
       let post = get(/databases/$(database)/documents/photos/$(photoId)).data;
@@ -126,6 +139,46 @@ service cloud.firestore {
       }
     }
 
+    // v3.2 Trusted Connections: mutual-consent friend-request graph, entirely separate from the
+    // legacy owner/friend/viewer role whitelist (`friends/{email}` below). Every write here is
+    // scoped to the caller's own uid path segment — no transactions, no cross-uid writes ever
+    // required (see dashboard.js's reconcileFriendships() for how the acceptor's counterpart
+    // creates their own mirror lazily on next load).
+    match /friend_requests/{toUid}/incoming/{fromUid} {
+      allow read: if request.auth != null && (request.auth.uid == toUid || request.auth.uid == fromUid);
+      allow create: if request.auth != null && request.auth.uid == fromUid && fromUid != toUid
+                    && request.resource.data.fromUid == fromUid
+                    && request.resource.data.toUid == toUid
+                    && request.resource.data.status == 'pending';
+      allow update: if request.auth != null && (
+        (request.auth.uid == toUid && resource.data.status == 'pending'
+          && request.resource.data.status in ['accepted', 'declined'])
+        || (request.auth.uid == fromUid && resource.data.status == 'pending'
+          && request.resource.data.status == 'cancelled')
+        // Re-send after a decline/cancel reuses the same doc (Firestore's create rule only
+        // fires when no doc exists yet), so the original sender may reset it back to pending.
+        || (request.auth.uid == fromUid && resource.data.status in ['declined', 'cancelled']
+          && request.resource.data.status == 'pending')
+      );
+      allow delete: if false;
+    }
+
+    match /friendships/{uid}/friends/{friendUid} {
+      allow read: if request.auth != null && (request.auth.uid == uid || request.auth.uid == friendUid);
+      // Only creatable as part of an accepted friend_requests doc between the same two people
+      // (checked in either direction, since either side's client may be the one writing its own
+      // mirror) — this is what stops anyone from freely adding themselves as a friend.
+      allow create: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.friendUid == friendUid && (
+        (exists(/databases/$(database)/documents/friend_requests/$(uid)/incoming/$(friendUid))
+          && get(/databases/$(database)/documents/friend_requests/$(uid)/incoming/$(friendUid)).data.status == 'accepted')
+        || (exists(/databases/$(database)/documents/friend_requests/$(friendUid)/incoming/$(uid))
+          && get(/databases/$(database)/documents/friend_requests/$(friendUid)/incoming/$(uid)).data.status == 'accepted')
+      );
+      allow update: if false;
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
     // Whitelist of approved friends, keyed by lowercase email (owner can approve someone
     // before they've ever signed in — a uid wouldn't exist yet at that point).
     match /friends/{email} {
@@ -157,11 +210,20 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Each user reads/marks-read only their own notifications; every notification is still
-    // self-written by whoever's client observed the triggering condition (no cross-user writes).
+    // Each user reads/marks-read only their own notifications; almost every notification is
+    // still self-written by whoever's client observed the triggering condition — see the one
+    // cross-user exception (friend_request/friend_accepted) in the create rule below.
     match /notifications/{notificationId} {
       allow read, update: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
+      // v3.2: a friend_request/friend_accepted notification is the one exception to "always
+      // self-written" — the sender writes directly into the recipient's inbox, self-attested via
+      // fromUid == caller (no cross-user data leak beyond what the friend-request flow already
+      // exposes: display name/username/photo, never email).
+      allow create: if request.auth != null && (
+        request.auth.uid == request.resource.data.uid
+        || (request.resource.data.type in ['friend_request', 'friend_accepted']
+            && request.resource.data.fromUid == request.auth.uid)
+      );
       allow delete: if false;
     }
   }

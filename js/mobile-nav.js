@@ -3,7 +3,7 @@
 // The desktop <header> is hidden below the `md` breakpoint (see the `hidden md:block` class
 // added to every page's <header>) in favor of what this module injects: a fixed top bar, a
 // slide-in drawer, a fixed bottom nav, and a Quick Add action sheet.
-import { auth } from "../firebase-init.js";
+import { auth, getUserMode } from "../firebase-init.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import { getLang, setLang, init as initI18n, applyTranslations } from "./i18n.js";
 
@@ -23,6 +23,12 @@ const DRAWER_LINKS = [
   { href: "constellation.html", icon: "fa-star", key: "nav.constellation", label: "Constellation" },
   { href: "me.html", icon: "fa-circle-user", key: "nav.me", label: "Me" },
 ];
+
+// v3.2 "Light EdenAtlas": non-owner drawer drops the owner-heavy modules (Career/Finance/
+// Reports/Time Capsule/Constellation) — same set js/sidebar.js hides, direct URLs still work
+// via auth-guard.js's data-owner-only redirect. Habits isn't in DRAWER_LINKS at all today (it's
+// reachable via bottom nav/quick add already), so no extra filtering needed for it here.
+const OWNER_ONLY_HREFS = new Set(["resume.html", "expenses.html", "reports.html", "time-capsule.html", "constellation.html"]);
 
 const BOTTOM_ITEMS = [
   { href: "index.html", icon: "fa-house", key: "mobilenav.home", label: "Home" },
@@ -51,10 +57,11 @@ function injectUI() {
   if (!anchor) return;
   injected = true;
 
+  const isOwnerRole = getUserMode() === "OWNER";
   document.body.insertAdjacentHTML("afterbegin", topBarHTML());
-  document.body.insertAdjacentHTML("beforeend", drawerHTML());
+  document.body.insertAdjacentHTML("beforeend", drawerHTML(isOwnerRole));
   document.body.insertAdjacentHTML("beforeend", bottomNavHTML());
-  document.body.insertAdjacentHTML("beforeend", quickAddHTML());
+  document.body.insertAdjacentHTML("beforeend", quickAddHTML(isOwnerRole));
 
   wireTopBar();
   wireDrawer();
@@ -74,8 +81,9 @@ function topBarHTML() {
     </div>`;
 }
 
-function drawerHTML() {
-  const links = DRAWER_LINKS.map((item) => `
+function drawerHTML(isOwnerRole) {
+  const visibleLinks = isOwnerRole ? DRAWER_LINKS : DRAWER_LINKS.filter((item) => !OWNER_ONLY_HREFS.has(item.href));
+  const links = visibleLinks.map((item) => `
     <a href="${item.href}" class="flex items-center gap-3 px-3 py-3 min-h-[44px] rounded-xl ${item.href === here ? "text-neonPurple bg-neonPurple/10" : "text-white hover:bg-darkBg/40"} transition-colors">
       <i class="fa-solid ${item.icon} w-5 text-center"></i> <span data-i18n="${item.key}">${item.label}</span>
     </a>`).join("");
@@ -127,8 +135,11 @@ function bottomNavHTML() {
     </nav>`;
 }
 
-function quickAddHTML() {
-  const items = QUICK_ADD_ITEMS.map((item) => `
+function quickAddHTML(isOwnerRole) {
+  const visibleItems = isOwnerRole
+    ? QUICK_ADD_ITEMS
+    : QUICK_ADD_ITEMS.filter((item) => !OWNER_ONLY_HREFS.has(item.href.split("?")[0]));
+  const items = visibleItems.map((item) => `
     <a href="${item.href}" class="flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-xl hover:bg-darkBg/40 transition-colors">
       <span class="w-9 h-9 rounded-lg bg-neonPurple/10 text-neonPurple flex items-center justify-center flex-shrink-0"><i class="fa-solid ${item.icon}"></i></span>
       <span class="text-sm text-white" data-i18n="${item.key}">${item.label}</span>

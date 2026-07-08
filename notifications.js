@@ -1,4 +1,4 @@
-import { auth, db, isOwner } from "./firebase-init.js";
+import { auth, db } from "./firebase-init.js";
 import { t } from "./js/i18n.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import {
@@ -17,9 +17,14 @@ export const TYPE_META = {
   habit_streak: { icon: "fa-fire", color: "text-amber-400", bg: "bg-amber-400/10" },
   gallery: { icon: "fa-heart", color: "text-neonPurple", bg: "bg-neonPurple/10" },
   capsule_ready: { icon: "fa-box-archive", color: "text-neonPurple", bg: "bg-neonPurple/10" },
+  friend_request: { icon: "fa-user-plus", color: "text-neonPurple", bg: "bg-neonPurple/10" },
+  friend_accepted: { icon: "fa-user-check", color: "text-emerald-400", bg: "bg-emerald-400/10" },
 };
 
-const accessNote = document.getElementById("notif-access-note");
+// friend_request/friend_accepted are the only two notification types with somewhere useful to
+// jump to — everything else is informational only.
+const LINKED_TYPES = new Set(["friend_request", "friend_accepted"]);
+
 const listEl = document.getElementById("notif-list");
 const emptyEl = document.getElementById("notif-empty");
 const markAllBtn = document.getElementById("mark-all-read-btn");
@@ -44,6 +49,7 @@ function notifCard(n) {
       </div>
       <p class="text-xs text-textGray mt-1">${n.message}</p>
       <p class="text-[10px] font-code text-textGray/70 mt-1.5">${formatTimestamp(n.createdAt)}</p>
+      ${LINKED_TYPES.has(n.type) ? `<a href="dashboard.html" class="inline-block mt-1.5 text-[10px] font-code text-neonPurple hover:underline">${t("inbox.view")}</a>` : ""}
     </div>
     ${!n.read ? `<button class="mark-read-btn flex-shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-code text-textGray hover:text-neonPurple border border-borderNeon hover:border-neonPurple/50 transition-colors">${t("common.mark_read")}</button>` : ""}`;
 
@@ -76,13 +82,6 @@ markAllBtn.addEventListener("click", async () => {
 });
 
 async function fetchNotifications(user) {
-  if (!isOwner(user)) {
-    accessNote.classList.remove("hidden");
-    cachedNotifs = [];
-    renderNotifs();
-    return;
-  }
-  accessNote.classList.add("hidden");
   try {
     const snap = await getDocs(query(collection(db, "notifications"), where("uid", "==", user.uid)));
     cachedNotifs = snap.docs

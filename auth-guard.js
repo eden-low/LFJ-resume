@@ -1,7 +1,7 @@
 // Site-wide login gate. Drop `<script type="module" src="auth-guard.js"></script>` on any
 // protected page (right after scripts.js) — no per-page wiring needed. Redirects to login.html
 // if signed out; reveals the page (removes body.auth-check-pending, see styles.css) once resolved.
-import { auth, db, isOwner } from "./firebase-init.js";
+import { auth, db, getUserMode } from "./firebase-init.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import { collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 
@@ -10,10 +10,12 @@ const fallbackTimer = setTimeout(() => {
 }, 6000);
 
 // Unread-notification badge on the nav's Notifications link, present on every protected page.
-// No-ops on any page that doesn't have the element (e.g. login.html has no nav at all).
+// No-ops on any page that doesn't have the element (e.g. login.html has no nav at all). Every
+// signed-in user has their own notifications now (v3.2 friend requests reach non-owners too),
+// not just the owner.
 async function updateNotifBadge(user) {
   const badge = document.getElementById("notif-badge");
-  if (!badge || !isOwner(user)) return;
+  if (!badge) return;
   try {
     const snap = await getDocs(query(collection(db, "notifications"), where("uid", "==", user.uid), where("read", "==", false)));
     if (snap.size > 0) {
@@ -32,6 +34,15 @@ onAuthStateChanged(auth, (user) => {
   if (!user) {
     const here = location.pathname.split("/").pop() || "index.html";
     location.href = "login.html?redirect=" + encodeURIComponent(here);
+    return;
+  }
+  // v3.2: owner-heavy pages (Career/Finance/Reports/Time Capsule/Constellation) opt in via
+  // `<body data-owner-only="true">` and redirect non-owners to Home with a warm notice, rather
+  // than each page reimplementing the same check — see index.html's `?notice=private_space`
+  // handling. Friend-mode navigation (js/sidebar.js, js/mobile-nav.js) already hides these links
+  // for non-owners; this is the direct-URL backstop.
+  if (document.body.dataset.ownerOnly === "true" && getUserMode() !== "OWNER") {
+    location.href = "index.html?notice=private_space";
     return;
   }
   document.body.classList.remove("auth-check-pending");

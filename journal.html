@@ -91,6 +91,7 @@
         <div id="journal-filters" class="flex flex-wrap items-center gap-1.5 text-xs font-cyber font-bold tracking-wider text-textGray">
           <button data-filter="all" class="filter-tab px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors" data-i18n="common.all">All</button>
           <button data-filter="public" class="filter-tab px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors" data-i18n="common.public">Public</button>
+          <button data-filter="connections" class="filter-tab hidden px-3 py-1.5 rounded-full hover:text-neonBlue hover:bg-neonBlue/10 transition-colors" data-i18n="common.connections">Connections</button>
           <button data-filter="private" class="filter-tab hidden px-3 py-1.5 rounded-full hover:text-rose-400 hover:bg-rose-400/10 transition-colors" data-i18n="common.private">Private</button>
         </div>
         <div class="w-px h-4 bg-borderNeon"></div>
@@ -131,6 +132,7 @@
           </div>
           <div class="flex items-center gap-4 text-xs font-code text-textGray">
             <label class="flex items-center gap-1.5"><input type="radio" name="journal-visibility" value="public" checked> <span data-i18n="common.public">Public</span></label>
+            <label class="flex items-center gap-1.5"><input type="radio" name="journal-visibility" value="connections"> <span data-i18n="common.connections">Connections</span></label>
             <label class="flex items-center gap-1.5"><input type="radio" name="journal-visibility" value="private"> <span data-i18n="common.private">Private</span></label>
           </div>
         </div>
@@ -185,6 +187,7 @@
         </div>
         <div class="flex items-center gap-4 text-xs font-code text-textGray">
           <label class="flex items-center gap-1.5"><input type="radio" name="journal-edit-visibility" value="public"> <span data-i18n="common.public">Public</span></label>
+          <label class="flex items-center gap-1.5"><input type="radio" name="journal-edit-visibility" value="connections"> <span data-i18n="common.connections">Connections</span></label>
           <label class="flex items-center gap-1.5"><input type="radio" name="journal-edit-visibility" value="private"> <span data-i18n="common.private">Private</span></label>
         </div>
         <div>
@@ -217,7 +220,7 @@
   <script type="module" src="js/splash.js"></script>
     <script type="module" src="js/i18n.js"></script>
   <footer class="max-w-7xl mx-auto px-4 mt-10 pb-6 text-center">
-    <p class="text-[11px] font-code text-textGray/70" data-i18n="footer.line">EdenAtlas &middot; by Jun &middot; Version 3.0</p>
+    <p class="text-[11px] font-code text-textGray/70" data-i18n="footer.line">EdenAtlas &middot; by Jun &middot; Version 3.2</p>
   </footer>
 
   <script src="scripts.js" defer></script>

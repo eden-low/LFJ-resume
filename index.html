@@ -67,6 +67,11 @@
     </header>
 
     <main class="max-w-5xl mx-auto px-4 mt-8 space-y-8">
+        <!-- v3.2: warm notice when auth-guard.js redirects a non-owner away from an owner-only page. -->
+        <div id="private-space-notice" class="hidden reveal flex items-center justify-between gap-3 bg-cardBg/90 neon-border-purple rounded-2xl px-5 py-3 text-sm text-white">
+            <span><i class="fa-solid fa-lock text-neonPurple mr-2"></i><span data-i18n="common.this_space_is_private">This space is private.</span></span>
+            <button id="private-space-notice-close" type="button" class="text-textGray hover:text-white text-lg leading-none">&times;</button>
+        </div>
         <!-- Greeting -->
         <section class="reveal">
             <h1 id="greeting-text" class="font-cyber font-semibold text-3xl tracking-tight">Good Morning</h1>
@@ -250,6 +255,7 @@
                 </div>
                 <div class="flex items-center gap-4 text-xs font-code text-textGray">
                     <label class="flex items-center gap-1.5"><input type="radio" name="qa-journal-visibility" value="public" checked> <span data-i18n="common.public">Public</span></label>
+                    <label class="flex items-center gap-1.5"><input type="radio" name="qa-journal-visibility" value="connections"> <span data-i18n="common.connections">Connections</span></label>
                     <label class="flex items-center gap-1.5"><input type="radio" name="qa-journal-visibility" value="private"> <span data-i18n="common.private">Private</span></label>
                 </div>
                 <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all" data-i18n="common.save">SAVE</button>
@@ -287,6 +293,7 @@
                     </div>
                     <div class="flex items-center gap-4 text-xs font-code text-textGray">
                         <label class="flex items-center gap-1.5"><input type="radio" name="qa-photo-visibility" value="public" checked> <span data-i18n="common.public">Public</span></label>
+                        <label class="flex items-center gap-1.5"><input type="radio" name="qa-photo-visibility" value="connections"> <span data-i18n="common.connections">Connections</span></label>
                         <label class="flex items-center gap-1.5"><input type="radio" name="qa-photo-visibility" value="private"> <span data-i18n="common.private">Private</span></label>
                     </div>
                 </div>
@@ -299,7 +306,7 @@
     <script type="module" src="js/splash.js"></script>
     <script type="module" src="js/i18n.js"></script>
   <footer class="max-w-7xl mx-auto px-4 mt-10 pb-6 text-center">
-    <p class="text-[11px] font-code text-textGray/70" data-i18n="footer.line">EdenAtlas &middot; by Jun &middot; Version 3.0</p>
+    <p class="text-[11px] font-code text-textGray/70" data-i18n="footer.line">EdenAtlas &middot; by Jun &middot; Version 3.2</p>
   </footer>
 
   <script src="scripts.js" defer></script>
@@ -314,6 +321,19 @@
         import { ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-storage.js";
         import { t } from "./js/i18n.js";
         import { resolveDisplayName } from "./js/identity.js";
+
+        // ---- v3.2: private-space redirect notice (see auth-guard.js's data-owner-only guard) ----
+        (function showPrivateSpaceNoticeIfNeeded() {
+            const params = new URLSearchParams(location.search);
+            if (params.get("notice") !== "private_space") return;
+            document.getElementById("private-space-notice").classList.remove("hidden");
+            params.delete("notice");
+            const rest = params.toString();
+            history.replaceState(null, "", location.pathname + (rest ? `?${rest}` : ""));
+        })();
+        document.getElementById("private-space-notice-close").addEventListener("click", () => {
+            document.getElementById("private-space-notice").classList.add("hidden");
+        });
 
         // ---- Greeting ----
 

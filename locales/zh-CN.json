@@ -44,6 +44,10 @@
     "sign_out": "退出登录",
     "public": "公开",
     "private": "私密",
+    "connections": "好友可见",
+    "accept": "接受",
+    "decline": "拒绝",
+    "this_space_is_private": "这个空间是私人的。",
     "none_yet": "这里还没有内容。",
     "tags": "标签",
     "location": "位置",
@@ -81,7 +85,7 @@
     "year_ago": "1 年前"
   },
   "footer": {
-    "line": "EdenAtlas · by Jun · Version 3.0"
+    "line": "EdenAtlas · by Jun · Version 3.2"
   },
   "home": {
     "greeting_morning": "早上好",
@@ -262,12 +266,22 @@
     "recommended": "推荐关注",
     "recommended_subtitle": "最近加入、你可以关注的人。",
     "no_recommendations": "暂时没有可推荐的人。",
-    "your_connections": "我的人脉",
-    "no_connections": "还没有人脉。邀请一位你信任的人，分享你人生的一部分吧。",
-    "requests": "人脉请求",
-    "requests_placeholder": "即将上线——你将可以在这里发送和接收人脉请求。",
-    "connect": "关注",
-    "connect_sent": "已发送",
+    "my_friends": "我的好友",
+    "no_connections": "还没有好友。邀请一位你信任的人，分享你人生的一部分吧。",
+    "friend_requests": "好友请求",
+    "incoming_requests": "收到的请求",
+    "no_incoming_requests": "暂时没有待处理的请求。",
+    "sent_requests": "已发送的请求",
+    "no_sent_requests": "你还没有发送过请求。",
+    "add_friend": "添加好友",
+    "friend": "好友",
+    "friends": "好友",
+    "pending": "待处理",
+    "request_sent": "请求已发送",
+    "request_accepted": "请求已通过",
+    "remove_friend": "删除好友",
+    "remove_friend_confirm": "确定要删除这位好友吗？对方将无法再看到你仅对好友开放的内容。",
+    "respond_in_requests": "向你发送了好友请求 — 请在下方回应",
     "open_profile": "查看主页",
     "owner_badge": "所有者",
     "collection": "个收藏集",
@@ -424,7 +438,11 @@
     "subtitle": "系统提醒，仅在你访问每个页面时更新——并非实时推送。",
     "mark_all_read": "全部标为已读",
     "no_notifications": "全部处理完毕。",
-    "owner_only": "通知功能仅账号所有者可用。"
+    "view": "查看",
+    "friend_request_title": "好友请求",
+    "friend_request_message": "{name} 想添加你为好友。",
+    "friend_accepted_title": "好友请求已通过",
+    "friend_accepted_message": "{name} 通过了你的好友请求。"
   },
   "settings": {
     "title": "设置",
@@ -444,7 +462,7 @@
     "tagline": "把生活、回忆与成长，安静地整理在一起。",
     "continue_google": "使用 Google 继续",
     "privacy": "你的数据始终私密——分享与否，由你决定。",
-    "footer_line": "Built by Jun · Version 3.0"
+    "footer_line": "Built by Jun · Version 3.2"
   },
   "splash": {
     "message": "正在打开你的数字地图…"

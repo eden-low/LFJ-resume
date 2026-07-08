@@ -105,22 +105,27 @@
         <p id="recommended-empty" class="hidden text-center text-xs font-code text-textGray py-8" data-i18n="people.no_recommendations">No one to recommend just yet.</p>
       </section>
 
+      <!-- Friend Requests: real incoming pending requests, Accept/Decline. -->
+      <section id="requests-section" class="reveal bg-cardBg/90 neon-border-purple rounded-2xl p-6">
+        <p class="text-[10px] uppercase tracking-[0.2em] text-textGray font-code mb-4" data-i18n="people.friend_requests">Friend Requests</p>
+        <div id="requests-list" class="space-y-2"></div>
+        <p id="requests-empty" class="hidden text-center text-xs font-code text-textGray py-8" data-i18n="people.no_incoming_requests">No pending requests right now.</p>
+      </section>
+
       <section class="reveal bg-cardBg/90 neon-border-purple rounded-2xl p-6">
-        <p class="text-[10px] uppercase tracking-[0.2em] text-textGray font-code mb-4" data-i18n="people.your_connections">Your Connections</p>
+        <p class="text-[10px] uppercase tracking-[0.2em] text-textGray font-code mb-4" data-i18n="people.my_friends">My Friends</p>
         <div id="connections-list" class="grid gap-3 sm:grid-cols-2">
           <div class="flex items-center gap-3 p-4 rounded-xl border border-borderNeon bg-darkBg/40"><div class="skeleton w-11 h-11 rounded-full flex-shrink-0"></div><div class="flex-1 space-y-2"><div class="skeleton h-3 w-24"></div><div class="skeleton h-2.5 w-16"></div></div></div>
           <div class="flex items-center gap-3 p-4 rounded-xl border border-borderNeon bg-darkBg/40"><div class="skeleton w-11 h-11 rounded-full flex-shrink-0"></div><div class="flex-1 space-y-2"><div class="skeleton h-3 w-24"></div><div class="skeleton h-2.5 w-16"></div></div></div>
         </div>
-        <p id="connections-empty" class="hidden text-center text-xs text-textGray py-10 leading-relaxed" data-i18n="people.no_connections">No connections yet. Invite someone you trust to share part of your journey.</p>
+        <p id="connections-empty" class="hidden text-center text-xs text-textGray py-10 leading-relaxed" data-i18n="people.no_connections">No friends yet. Invite someone you trust to share part of your journey.</p>
       </section>
 
-      <!-- Connection Requests: a placeholder for a future feature, not a working request flow. -->
-      <section class="reveal bg-cardBg/90 neon-border-purple rounded-2xl p-6">
-        <p class="text-[10px] uppercase tracking-[0.2em] text-textGray font-code mb-4" data-i18n="people.requests">Connection Requests</p>
-        <div class="flex flex-col items-center text-center py-8 gap-2">
-          <i class="fa-solid fa-user-group text-lg text-textGray/60"></i>
-          <p class="text-xs text-textGray" data-i18n="people.requests_placeholder">Coming soon — you'll be able to send and receive connection requests here.</p>
-        </div>
+      <!-- Sent Requests: pending requests I've sent, computed client-side from the same user directory. -->
+      <section id="sent-requests-section" class="reveal bg-cardBg/90 neon-border-purple rounded-2xl p-6">
+        <p class="text-[10px] uppercase tracking-[0.2em] text-textGray font-code mb-4" data-i18n="people.sent_requests">Sent Requests</p>
+        <div id="sent-requests-list" class="space-y-2"></div>
+        <p id="sent-requests-empty" class="hidden text-center text-xs font-code text-textGray py-8" data-i18n="people.no_sent_requests">You haven't sent any requests yet.</p>
       </section>
     </div>
   </main>
@@ -128,7 +133,7 @@
   <script type="module" src="js/splash.js"></script>
     <script type="module" src="js/i18n.js"></script>
   <footer class="max-w-7xl mx-auto px-4 mt-10 pb-6 text-center">
-    <p class="text-[11px] font-code text-textGray/70" data-i18n="footer.line">EdenAtlas &middot; by Jun &middot; Version 3.0</p>
+    <p class="text-[11px] font-code text-textGray/70" data-i18n="footer.line">EdenAtlas &middot; by Jun &middot; Version 3.2</p>
   </footer>
 
   <script src="scripts.js" defer></script>
