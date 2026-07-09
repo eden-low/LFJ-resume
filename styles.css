@@ -250,16 +250,102 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.18);
 }
 
+/* ================================================================
+   Mobile App Shell (v3.1.2) — central rules referenced from
+   multiple pages, so page-specific CSS hacks aren't needed for
+   these. Page-level mobile fixes that only apply to one page (like
+   #me-tabs further down) stay page-scoped and say why.
+   ================================================================ */
+
+/* Task 9 — reusable single-row horizontal-scroll filter strip. Not applied automatically to
+   every page's filter row (that would mean editing gallery.js/journal.js/timeline.js/etc's
+   markup, out of scope for a shell-only pass) — this is the utility class future/updated filter
+   rows can opt into instead of each page reinventing the same three properties. Pages using a
+   plain `flex flex-wrap` filter row (e.g. gallery.html's #feed-filters) already satisfy Task 9's
+   "wrap cleanly" alternative today and don't need this. */
+.mobile-filter-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.mobile-filter-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .mobile-filter-scroll {
+    flex-wrap: nowrap !important;
+  }
+}
+
+/* Task 10 — chart/map mobile safety, central so expenses.html/reports.html's Chart.js canvases
+   and atlas.html's Leaflet map never need per-page overrides. Chart.js already sizes the canvas
+   to its container (responsive:true, maintainAspectRatio:false in expenses.js/insights.js) —
+   max-width is just a hard backstop against that JS-driven resize ever overshooting. */
+canvas {
+  max-width: 100%;
+}
+
+/* Leaflet's bottom-corner control container (zoom/attribution, if ever moved off their default
+   top-left position) would otherwise render underneath the fixed mobile bottom nav. */
+@media (max-width: 767px) {
+  .leaflet-bottom {
+    bottom: calc(80px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
 /* Mobile nav (js/mobile-nav.js): the injected fixed top bar / bottom bar need body clearance
    below the `md` breakpoint. !important is required since each page's own Tailwind `pb-*`
-   utility class would otherwise win on specificity-tie (declaration order). Bottom clearance
-   uses env(safe-area-inset-bottom) on top of a flat 80px so the fixed bottom nav never sits
-   under a phone's home-indicator bar/browser chrome — a plain rem value alone doesn't account
-   for that inset. */
+   utility class would otherwise win on specificity-tie (declaration order). Top clearance
+   matches #mobile-topbar's own min-height + safe-area-inset-top below. Bottom clearance is
+   120px (v3.1.2 "Mobile App Shell Polish" — bumped from 80px so the last card/footer on a long
+   page always clears the bottom nav with room to spare, not just barely) plus
+   env(safe-area-inset-bottom) so the fixed bottom nav never sits under a phone's home-indicator
+   bar/browser chrome — a plain rem value alone doesn't account for that inset. */
 @media (max-width: 767px) {
   body {
-    padding-top: 4rem !important;
-    padding-bottom: calc(80px + env(safe-area-inset-bottom)) !important;
+    padding-top: calc(56px + env(safe-area-inset-top)) !important;
+    padding-bottom: calc(120px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+/* #mobile-topbar (js/mobile-nav.js): min-height (not a fixed height) + padding-top for the
+   safe-area inset — the bar's tinted/blurred background extends up under the notch/status bar,
+   while its actual content (hamburger/wordmark/account icon) stays vertically centered in the
+   56px visible portion below it. #mobile-topbar-brand img gets the same hard pixel-size lock as
+   the drawer header logo — guards against the same "flash of the source PNG's native (much
+   larger) size before Tailwind's JIT compiles this dynamically-injected node's classes" bug,
+   which is what was pushing the wordmark past the right edge on first paint. */
+#mobile-topbar {
+  min-height: 56px;
+  padding-top: env(safe-area-inset-top);
+}
+
+#mobile-topbar-brand img {
+  width: 20px;
+  height: 20px;
+}
+
+/* #mobile-bottomnav (js/mobile-nav.js): real tab height (per Task 6's 64-76px range) plus its
+   own safe-area padding (already set inline per-nav in the markup) is handled here so it's one
+   central rule rather than per-item guesswork. Below 430px the label shrinks further; below
+   390px labels are dropped entirely (icons only) — the min-w-0/truncate fix on the nav items
+   themselves (mobile-nav.js) already stops labels from visually overlapping, this is extra
+   breathing room for the very narrowest phones the brief calls out. */
+#mobile-bottomnav {
+  height: 64px;
+}
+
+@media (max-width: 430px) {
+  .bottomnav-label {
+    font-size: 9px;
+  }
+}
+
+@media (max-width: 390px) {
+  .bottomnav-label {
+    display: none;
   }
 }
 

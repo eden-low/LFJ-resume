@@ -81,14 +81,21 @@ function injectUI(user) {
 }
 
 function topBarHTML() {
+  // #mobile-topbar-brand and its img/span get hard pixel-locked sizing in styles.css (not just
+  // the w-5/h-5/truncate Tailwind classes below) — the same "flash of the source PNG's native
+  // size before Tailwind Play CDN's JIT compiles this dynamically-injected node's classes" bug
+  // fixed for the drawer header logo. On the top bar specifically, a momentarily-oversized image
+  // inside this flex row was what pushed the "EdenAtlas" wordmark past the right edge (read as
+  // both "a giant logo" and "clipped text") — min-w-0 + truncate below is the second half of the
+  // fix, so even in a genuinely narrow layout the wordmark ellipsizes instead of overflowing.
   return `
-    <div id="mobile-topbar" class="md:hidden fixed top-0 inset-x-0 z-40 flex items-center justify-between px-4 py-3 bg-cardBg/90 backdrop-blur-md border-b border-borderNeon">
-      <button id="mobile-hamburger-btn" type="button" aria-label="Open menu" aria-expanded="false" class="min-w-[44px] min-h-[44px] flex items-center justify-center text-white text-lg"><i class="fa-solid fa-bars"></i></button>
-      <span class="flex items-center gap-2">
-        <img src="images/logo-mark.png" alt="" class="w-5 h-5 object-contain">
-        <span class="font-cyber font-semibold text-sm tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-neonPurple">EdenAtlas</span>
+    <div id="mobile-topbar" class="md:hidden fixed top-0 inset-x-0 z-40 flex items-center justify-between gap-2 px-4 bg-cardBg/90 backdrop-blur-md border-b border-borderNeon">
+      <button id="mobile-hamburger-btn" type="button" aria-label="Open menu" aria-expanded="false" class="min-w-[44px] min-h-[44px] flex-shrink-0 flex items-center justify-center text-white text-lg"><i class="fa-solid fa-bars"></i></button>
+      <span id="mobile-topbar-brand" class="flex items-center gap-2 min-w-0 overflow-hidden">
+        <img src="images/logo-mark.png" alt="" class="w-5 h-5 object-contain flex-shrink-0">
+        <span class="font-cyber font-semibold text-sm tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-neonPurple truncate">EdenAtlas</span>
       </span>
-      <a href="me.html" aria-label="Account" class="min-w-[44px] min-h-[44px] flex items-center justify-center text-white text-lg"><i class="fa-solid fa-circle-user"></i></a>
+      <a href="me.html" aria-label="Account" class="min-w-[44px] min-h-[44px] flex-shrink-0 flex items-center justify-center text-white text-lg"><i class="fa-solid fa-circle-user"></i></a>
     </div>`;
 }
 
@@ -148,10 +155,15 @@ function bottomNavHTML() {
           <span class="w-11 h-11 rounded-full bg-gradient-to-r from-neonViolet to-neonPurple flex items-center justify-center text-white text-lg shadow-lg shadow-neonPurple/30"><i class="fa-solid ${item.icon}"></i></span>
         </button>`;
     }
+    // min-w-0 overrides flex-1's default min-width:auto — without it, a longer label (e.g.
+    // "Connections") sets its own content width as this item's floor and refuses to shrink to
+    // its equal 1/5 share, spilling into the neighboring item and reading as overlapping/
+    // squeezed text ("HomeMemories"). truncate is the second half: if a label is ever still
+    // wider than its slot, it ellipsizes instead of overflowing past the flex item's box.
     return `
-      <a href="${item.href}" class="flex flex-col items-center justify-center gap-0.5 min-w-[44px] min-h-[44px] flex-1 ${active ? "text-neonPurple" : "text-textGray"}">
+      <a href="${item.href}" class="flex flex-col items-center justify-center gap-0.5 min-w-0 min-h-[44px] flex-1 ${active ? "text-neonPurple" : "text-textGray"}">
         <i class="fa-solid ${item.icon}"></i>
-        <span class="text-[10px] font-code" data-i18n="${item.key}">${item.label}</span>
+        <span class="bottomnav-label w-full text-center truncate text-[10px] font-code" data-i18n="${item.key}">${item.label}</span>
       </a>`;
   }).join("");
   return `
