@@ -3,7 +3,7 @@
 // only (`hidden md:flex`) — mobile keeps its existing top bar/drawer/bottom-nav from
 // mobile-nav.js untouched. Replaces the old horizontal top-nav, which is now permanently
 // hidden (see the sitewide `<header class="hidden ...">` → `<header class="hidden">` pass).
-import { auth, getUserMode } from "../firebase-init.js";
+import { auth, getUserMode, isOwner } from "../firebase-init.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import { getLang, setLang, init as initI18n, applyTranslations } from "./i18n.js";
 
@@ -111,13 +111,16 @@ function sidebarHTML(isOwnerRole) {
     </aside>`;
 }
 
-function injectUI() {
+function injectUI(user) {
   if (injected) return;
   const anchor = document.querySelector("header");
   if (!anchor) return;
   injected = true;
 
-  document.body.insertAdjacentHTML("afterbegin", sidebarHTML(getUserMode() === "OWNER"));
+  // See js/mobile-nav.js's injectUI() for why isOwner(user) is checked alongside the cached
+  // lfj:userMode — the cache can be missing and its own fallback is "VIEWER", which would
+  // otherwise wrongly collapse the owner's sidebar to the light nav.
+  document.body.insertAdjacentHTML("afterbegin", sidebarHTML(isOwner(user) || getUserMode() === "OWNER"));
   applyWidth();
 
   document.getElementById("eden-sidebar-logout").addEventListener("click", async () => {
@@ -160,5 +163,5 @@ function injectUI() {
 }
 
 onAuthStateChanged(auth, (user) => {
-  if (user) injectUI();
+  if (user) injectUI(user);
 });

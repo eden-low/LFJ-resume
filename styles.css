@@ -4,6 +4,7 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
@@ -12,6 +13,8 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
   opacity: 1;
   transition: opacity 0.25s ease;
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 /* Glass card: soft translucency + blur + hairline border, no colored glow */
@@ -249,11 +252,52 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb {
 
 /* Mobile nav (js/mobile-nav.js): the injected fixed top bar / bottom bar need body clearance
    below the `md` breakpoint. !important is required since each page's own Tailwind `pb-*`
-   utility class would otherwise win on specificity-tie (declaration order). */
+   utility class would otherwise win on specificity-tie (declaration order). Bottom clearance
+   uses env(safe-area-inset-bottom) on top of a flat 80px so the fixed bottom nav never sits
+   under a phone's home-indicator bar/browser chrome — a plain rem value alone doesn't account
+   for that inset. */
 @media (max-width: 767px) {
   body {
     padding-top: 4rem !important;
-    padding-bottom: 6rem !important;
+    padding-bottom: calc(80px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+/* me.html mobile fixes: the tab bar (#me-tabs) used to be flex-wrap, which turned 7 buttons
+   into an ugly multi-row block on narrow screens — scrolling horizontally reads better than
+   wrapping for a single-row tab strip. Long values in #me-profile-card (email-derived username,
+   a long bio) could also force the card wider than the viewport without an explicit min-width
+   reset on its flex children, since flex items default to min-width:auto. */
+#me-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+#me-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+#me-tabs .me-tab {
+  flex-shrink: 0;
+}
+
+#me-profile-card,
+#me-profile-card * {
+  min-width: 0;
+}
+
+#me-profile-card #me-name,
+#me-profile-card #me-username,
+#me-profile-card #me-bio {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  #me-tabs .me-tab {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.7rem;
   }
 }
 

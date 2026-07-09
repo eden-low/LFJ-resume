@@ -3,7 +3,7 @@
 // The desktop <header> is hidden below the `md` breakpoint (see the `hidden md:block` class
 // added to every page's <header>) in favor of what this module injects: a fixed top bar, a
 // slide-in drawer, a fixed bottom nav, and a Quick Add action sheet.
-import { auth, getUserMode } from "../firebase-init.js";
+import { auth, getUserMode, isOwner } from "../firebase-init.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import { getLang, setLang, init as initI18n, applyTranslations } from "./i18n.js";
 
@@ -51,13 +51,18 @@ const QUICK_ADD_ITEMS = [
 const here = location.pathname.split("/").pop() || "index.html";
 let injected = false;
 
-function injectUI() {
+function injectUI(user) {
   if (injected) return;
   const anchor = document.querySelector("header");
   if (!anchor) return;
   injected = true;
 
-  const isOwnerRole = getUserMode() === "OWNER";
+  // Prefer isOwner(user) (a direct email check on the live Firebase user) over the cached
+  // lfj:userMode alone — that cache can be missing (cleared storage, iOS Safari private/ITP,
+  // a device that's never been through login.html's resolveUserMode()) and getUserMode()'s own
+  // fallback is "VIEWER", which would wrongly drop the owner to the light nav instead of just
+  // failing open to full nav for the one account that's always allowed everywhere.
+  const isOwnerRole = isOwner(user) || getUserMode() === "OWNER";
   document.body.insertAdjacentHTML("afterbegin", topBarHTML());
   document.body.insertAdjacentHTML("beforeend", drawerHTML(isOwnerRole));
   document.body.insertAdjacentHTML("beforeend", bottomNavHTML());
@@ -222,5 +227,5 @@ function wireQuickAdd() {
 }
 
 onAuthStateChanged(auth, (user) => {
-  if (user) injectUI();
+  if (user) injectUI(user);
 });

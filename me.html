@@ -42,14 +42,14 @@
 
   <main class="max-w-4xl mx-auto px-4 mt-8 space-y-6">
     <!-- Header -->
-    <section class="reveal bg-cardBg/90 neon-border-purple rounded-2xl p-6">
+    <section id="me-profile-card" class="reveal bg-cardBg/90 neon-border-purple rounded-2xl p-6">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div class="flex items-center gap-4">
-          <img id="me-avatar" src="" alt="" class="w-16 h-16 rounded-full border border-borderNeon object-cover hidden">
-          <div id="me-avatar-fallback" class="w-16 h-16 rounded-full bg-neonPurple/10 border border-borderNeon flex items-center justify-center text-neonPurple hidden">
+        <div class="flex items-center gap-4 min-w-0">
+          <img id="me-avatar" src="" alt="" class="w-16 h-16 rounded-full border border-borderNeon object-cover hidden flex-shrink-0">
+          <div id="me-avatar-fallback" class="w-16 h-16 rounded-full bg-neonPurple/10 border border-borderNeon flex items-center justify-center text-neonPurple hidden flex-shrink-0">
             <i class="fa-solid fa-user text-2xl"></i>
           </div>
-          <div>
+          <div class="min-w-0">
             <h1 id="me-name" class="font-cyber font-semibold text-xl">&mdash;</h1>
             <p id="me-username" class="text-xs text-textGray font-code mt-0.5">&mdash;</p>
             <p id="me-bio" class="text-sm text-textGray mt-1.5"></p>
@@ -64,7 +64,7 @@
     </section>
 
     <!-- Tabs -->
-    <section class="reveal bg-cardBg/90 neon-border-purple rounded-2xl p-2 flex flex-wrap items-center gap-1 text-xs font-cyber font-bold tracking-wider text-textGray">
+    <section id="me-tabs" class="reveal bg-cardBg/90 neon-border-purple rounded-2xl p-2 flex items-center gap-1 text-xs font-cyber font-bold tracking-wider text-textGray">
       <button data-tab="overview" class="me-tab px-3 py-2 rounded-xl transition-colors" data-i18n="me.overview">Overview</button>
       <button data-tab="profile" class="me-tab px-3 py-2 rounded-xl transition-colors" data-i18n="me.profile">Profile</button>
       <button data-tab="preferences" class="me-tab px-3 py-2 rounded-xl transition-colors" data-i18n="me.preferences">Preferences</button>
