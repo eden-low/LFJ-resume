@@ -11,6 +11,8 @@ import {
   getDocs,
   addDoc,
   doc,
+  getDoc,
+  setDoc,
   updateDoc,
   deleteDoc,
   serverTimestamp,
@@ -57,26 +59,172 @@ async function populateCollectionSelect(selectEl, selectedId) {
   selectEl.value = selectedId || "";
 }
 
-// ---- Fetch: same mine+public merge pattern as journals/timeline/habits. Career write access
-// is Owner-only (see firestore.rules), so the "mine" half only ever returns anything when the
-// signed-in user IS the owner — Viewers/Friends/HR transparently only ever see public items. ----
-async function fetchCareerCollection(name) {
-  const map = new Map();
+// ==================== v3.2.2: Public Career Profile / Resume Access ====================
+//
+// resume.html?u=username (preferred) or ?uid=userUid — the shareable HR link, resolved the same
+// way profile.js resolves ?u=/?uid= for profile.html. With no param, falls back to the app's one
+// Owner (career is still Owner-only to write — see firestore.rules — so in practice this almost
+// always resolves to the Owner either way; the fallback just avoids hardcoding a uid).
+//
+// `users/{uid}.careerVisibility` ("private"|"connections"|"public", missing == "private") is a
+// PAGE-LEVEL, client-side-only gate — same tier as profile.html's canViewProfile(): it decides
+// whether resume.html bothers rendering anything at all for this viewer. The actual security
+// boundary is still each career_*/{id} doc's own per-item `visibility` field, enforced by
+// firestore.rules' isCareerReadable() (public items readable with no auth at all; connections/
+// private items fall through to the existing isMineOrPublic()). A determined client could still
+// query a public career item directly even if the page-level toggle is "private" — an accepted
+// tradeoff, not a new one (profile.html already documents the identical caveat).
+const urlParams = new URLSearchParams(location.search);
+const targetUsernameParam = (urlParams.get("u") || "").trim().toLowerCase();
+const targetUidParam = urlParams.get("uid");
+
+let targetUid = null;
+let canEdit = false; // true only when the signed-in user IS the app Owner AND is viewing their own uid
+let access = { pageAccessible: false, includeConnections: false, includeAllMine: false };
+
+async function resolveOwnerUidFallback() {
   try {
-    const publicSnap = await getDocs(query(collection(db, name), where("visibility", "==", "public")));
-    publicSnap.forEach((d) => map.set(d.id, { id: d.id, ...d.data() }));
+    const snap = await getDocs(query(collection(db, "public_profiles"), where("role", "==", "owner")));
+    if (!snap.empty) return snap.docs[0].id;
   } catch (err) {
-    console.error(`[career] ${name} public query failed:`, err.code || err);
+    console.error("[career] owner lookup failed:", err.code || err);
   }
-  const user = auth.currentUser;
-  if (user) {
+  return null;
+}
+
+async function resolveTargetUid() {
+  if (targetUsernameParam) {
     try {
-      const mineSnap = await getDocs(query(collection(db, name), where("uid", "==", user.uid)));
-      mineSnap.forEach((d) => map.set(d.id, { id: d.id, ...d.data() }));
+      const handleSnap = await getDoc(doc(db, "usernames", targetUsernameParam));
+      return handleSnap.exists() ? handleSnap.data().uid : null;
     } catch (err) {
-      console.error(`[career] ${name} own query failed:`, err.code || err);
+      console.error("[career] username lookup failed:", err.code || err);
+      return null;
     }
   }
+  if (targetUidParam) return targetUidParam;
+  return resolveOwnerUidFallback();
+}
+
+// Signed in: read the richer users/{uid} doc (auth-required, has careerVisibility as the source
+// of truth). Signed out: fall back to the world-readable public_profiles/{uid} mirror.
+async function fetchPersonForTarget(uid) {
+  const user = auth.currentUser;
+  try {
+    const snap = await getDoc(doc(db, user ? "users" : "public_profiles", uid));
+    return snap.exists() ? snap.data() : null;
+  } catch (err) {
+    console.error("[career] person fetch failed:", err.code || err);
+    return null;
+  }
+}
+
+// Mirrors profile.js's isAcceptedFriendOfTarget — one getDoc against the target's own
+// friendships subcollection, readable by either side per firestore.rules.
+async function isAcceptedFriendOfTarget(uid) {
+  const me = auth.currentUser;
+  if (!me || me.uid === uid) return false;
+  try {
+    const snap = await getDoc(doc(db, "friendships", uid, "friends", me.uid));
+    return snap.exists();
+  } catch (err) {
+    console.error("[career] friendship check failed:", err.code || err);
+    return false;
+  }
+}
+
+function computeAccess({ isSelf, careerVisibility, isFriend }) {
+  if (isSelf) return { pageAccessible: true, includeConnections: true, includeAllMine: true };
+  const vis = careerVisibility || "private";
+  if (vis === "public") return { pageAccessible: true, includeConnections: isFriend, includeAllMine: false };
+  if (vis === "connections") return { pageAccessible: isFriend, includeConnections: isFriend, includeAllMine: false };
+  return { pageAccessible: false, includeConnections: false, includeAllMine: false };
+}
+
+const careerSubnav = document.getElementById("career-subnav");
+const careerMain = document.getElementById("career-main");
+const careerNotice = document.getElementById("career-access-notice");
+const careerNoticeText = document.getElementById("career-access-notice-text");
+let lastNoticeReason = null;
+
+function noticeKey(reason) {
+  if (reason === "not_found") return "career.resume_not_found";
+  if (reason === "connections") return "career.resume_connections_notice";
+  return "career.resume_private_notice";
+}
+
+function showNotice(reason) {
+  lastNoticeReason = reason;
+  careerSubnav.classList.add("hidden");
+  careerMain.classList.add("hidden");
+  careerNotice.classList.remove("hidden");
+  careerNoticeText.textContent = i18nT(noticeKey(reason));
+}
+
+function hideNotice() {
+  lastNoticeReason = null;
+  careerSubnav.classList.remove("hidden");
+  careerMain.classList.remove("hidden");
+  careerNotice.classList.add("hidden");
+}
+
+const visibilityCard = document.getElementById("career-visibility-card");
+const visibilitySelect = document.getElementById("career-visibility-select");
+const visibilityStatus = document.getElementById("career-visibility-status");
+
+function updateVisibilityControl(careerVisibility) {
+  visibilityCard.classList.toggle("hidden", !canEdit);
+  if (!canEdit) return;
+  visibilitySelect.value = careerVisibility || "private";
+  visibilityStatus.textContent = "";
+}
+
+visibilitySelect.addEventListener("change", async (event) => {
+  if (!canEdit || !targetUid) return;
+  const value = event.target.value;
+  visibilityStatus.textContent = i18nT("common.saving");
+  try {
+    await setDoc(doc(db, "users", targetUid), { uid: targetUid, careerVisibility: value }, { merge: true });
+    await setDoc(doc(db, "public_profiles", targetUid), { uid: targetUid, careerVisibility: value }, { merge: true });
+    visibilityStatus.textContent = i18nT("career.visibility_saved");
+  } catch (err) {
+    console.error("[career] visibility save failed:", err.code || err);
+    visibilityStatus.textContent = i18nT("common.couldnt_save");
+  }
+});
+
+// ---- Fetch: same mine+public(+connections) merge pattern as journals/timeline/habits/
+// profile.js, but scoped to `targetUid` (the resume being viewed) rather than every uid in the
+// collection. Career write access is still Owner-only (see firestore.rules), so a non-Owner
+// targetUid structurally has nothing to fetch here regardless of access level. ----
+async function fetchByVisibility(name, uid, visibility) {
+  try {
+    const snap = await getDocs(query(collection(db, name), where("uid", "==", uid), where("visibility", "==", visibility)));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.error(`[career] ${name} ${visibility} query failed:`, err.code || err);
+    return [];
+  }
+}
+
+async function fetchCareerFor(name) {
+  if (!targetUid || !access.pageAccessible) return [];
+  if (access.includeAllMine) {
+    try {
+      const snap = await getDocs(query(collection(db, name), where("uid", "==", targetUid)));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } catch (err) {
+      console.error(`[career] ${name} own query failed:`, err.code || err);
+      return [];
+    }
+  }
+  const [pub, connections] = await Promise.all([
+    fetchByVisibility(name, targetUid, "public"),
+    access.includeConnections ? fetchByVisibility(name, targetUid, "connections") : Promise.resolve([]),
+  ]);
+  const map = new Map();
+  pub.forEach((d) => map.set(d.id, d));
+  connections.forEach((d) => map.set(d.id, d));
   return [...map.values()];
 }
 
@@ -88,15 +236,61 @@ let activeProjectCategory = "all";
 
 async function loadAll() {
   [cachedExperiences, cachedProjects, cachedCertificates, cachedAwards] = await Promise.all([
-    fetchCareerCollection("career_experiences"),
-    fetchCareerCollection("career_projects"),
-    fetchCareerCollection("career_certificates"),
-    fetchCareerCollection("career_awards"),
+    fetchCareerFor("career_experiences"),
+    fetchCareerFor("career_projects"),
+    fetchCareerFor("career_certificates"),
+    fetchCareerFor("career_awards"),
   ]);
   renderExperiences();
   renderProjects();
   renderCertificates();
   renderAwards();
+}
+
+// Resolves the target uid, fetches their access-gating fields, and decides what this viewer may
+// see — called once per auth-state change, before loadAll(). Replaces the old "just always fetch
+// every public item + my own" behavior with per-target, per-viewer access control.
+async function initCareerAccess(user) {
+  targetUid = await resolveTargetUid();
+  if (!targetUid) {
+    showNotice("not_found");
+    return;
+  }
+
+  const person = await fetchPersonForTarget(targetUid);
+  if (!person) {
+    showNotice("not_found");
+    return;
+  }
+
+  const isSelf = !!user && user.uid === targetUid;
+  canEdit = isSelf && isOwner(user);
+
+  let careerVisibility = person.careerVisibility;
+  // One-time default upgrade: the app historically treated Career as a public portfolio, so the
+  // very first time the actual Owner loads their own resume with no careerVisibility ever set,
+  // default it to "public" instead of leaving it at the (safer, rules-level) implicit "private" —
+  // mirrors login.html's "only write createdAt on first login" one-time-write pattern.
+  if (canEdit && careerVisibility === undefined) {
+    careerVisibility = "public";
+    try {
+      await setDoc(doc(db, "users", targetUid), { uid: targetUid, careerVisibility }, { merge: true });
+      await setDoc(doc(db, "public_profiles", targetUid), { uid: targetUid, careerVisibility }, { merge: true });
+    } catch (err) {
+      console.error("[career] default visibility upgrade failed:", err.code || err);
+    }
+  }
+
+  const isFriend = user && !isSelf ? await isAcceptedFriendOfTarget(targetUid) : false;
+  access = computeAccess({ isSelf, careerVisibility, isFriend });
+  updateVisibilityControl(careerVisibility);
+
+  if (!access.pageAccessible) {
+    showNotice(careerVisibility === "connections" ? "connections" : "private");
+    return;
+  }
+  hideNotice();
+  await loadAll();
 }
 
 // Re-render bilingual content (not just chrome — see js/i18n.js's applyTranslations for that)
@@ -106,6 +300,7 @@ document.addEventListener("eden:langchange", () => {
   renderProjects();
   renderCertificates();
   renderAwards();
+  if (lastNoticeReason) careerNoticeText.textContent = i18nT(noticeKey(lastNoticeReason));
 });
 
 // ---- Storage upload helper (mirrors gallery.js's upload flow) ----
@@ -148,7 +343,7 @@ function wireOwnerControls(root, onEdit) {
 function renderExperiences() {
   const listEl = document.getElementById("experience-list");
   const emptyEl = document.getElementById("experience-empty");
-  const owner = isOwner(auth.currentUser);
+  const owner = canEdit;
   document.getElementById("add-experience-btn").classList.toggle("hidden", !owner);
   emptyEl.classList.toggle("hidden", cachedExperiences.length > 0);
 
@@ -233,7 +428,7 @@ document.getElementById("experience-form").addEventListener("submit", async (eve
 const PROJECT_CATEGORIES = ["personal", "internship", "fyp", "coursework", "work"];
 
 function renderProjects() {
-  const owner = isOwner(auth.currentUser);
+  const owner = canEdit;
   document.getElementById("add-project-btn").classList.toggle("hidden", !owner);
 
   const visible = activeProjectCategory === "all" ? cachedProjects : cachedProjects.filter((p) => p.category === activeProjectCategory);
@@ -411,7 +606,7 @@ document.getElementById("project-form").addEventListener("submit", async (event)
 function renderCertificates() {
   const listEl = document.getElementById("certificates-list");
   const emptyEl = document.getElementById("certificates-empty");
-  const owner = isOwner(auth.currentUser);
+  const owner = canEdit;
   document.getElementById("add-certificate-btn").classList.toggle("hidden", !owner);
   emptyEl.classList.toggle("hidden", cachedCertificates.length > 0);
 
@@ -498,7 +693,7 @@ document.getElementById("certificate-form").addEventListener("submit", async (ev
 function renderAwards() {
   const listEl = document.getElementById("awards-list");
   const emptyEl = document.getElementById("awards-empty");
-  const owner = isOwner(auth.currentUser);
+  const owner = canEdit;
   document.getElementById("add-award-btn").classList.toggle("hidden", !owner);
   emptyEl.classList.toggle("hidden", cachedAwards.length > 0);
 
@@ -597,5 +792,5 @@ onAuthStateChanged(auth, (user) => {
   } else {
     renderSignedOut();
   }
-  loadAll();
+  initCareerAccess(user);
 });

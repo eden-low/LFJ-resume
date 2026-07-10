@@ -160,7 +160,15 @@
     "category_work": "工作",
     "contact_header": "联系方式",
     "education_header": "教育背景",
-    "leadership_header": "领导力与活动经历"
+    "leadership_header": "领导力与活动经历",
+    "public_resume_link": "公开简历链接",
+    "visibility_hint": "拥有此链接的任何人都可以查看你公开的职业档案。",
+    "visibility_connections_label": "好友可见",
+    "visibility_public_label": "公开 / HR 链接",
+    "visibility_saved": "可见性已保存。",
+    "resume_private_notice": "此简历为私密状态。",
+    "resume_connections_notice": "此简历仅对好友可见。",
+    "resume_not_found": "未找到该简历。"
   },
   "memories": {
     "title": "回忆",
@@ -498,6 +506,8 @@
     "habit_completion": "习惯完成度",
     "joined": "加入于 {date}",
     "private_notice": "这个主页是私密的。",
+    "view_resume": "查看简历",
+    "view_career_profile": "查看职业档案",
     "recent_activity": "近期动态",
     "public_timeline": "公开历程",
     "public_journal": "公开日记",

@@ -95,20 +95,31 @@ service cloud.firestore {
     // Career CMS (resume.html, nav-labeled "Career"): unlike the rest of the app, this is not
     // a per-uid multi-tenant space — the page has always been about one person — so writes are
     // Owner-only, not canParticipate()-gated. HR/Friends/Viewers only ever read public items.
+    // v3.2.2: a `visibility == 'public'` career doc is readable with NO auth requirement at all
+    // (unlike isMineOrPublic(), which always requires request.auth != null) — this is what lets
+    // an unauthenticated HR visitor open a public resume link. Connections-tier and private items
+    // still fall through to isMineOrPublic(), which is unchanged and still auth-required. The
+    // page-level `users/{uid}.careerVisibility` toggle (private/connections/public) that gates
+    // whether resume.html even attempts to show the page is enforced client-side only (career.js),
+    // the same UI-level-gate-over-open-item-rules pattern profile.html's canViewProfile() already
+    // uses — see CLAUDE.md's "EdenAtlas v3.2.2" bullet for the documented tradeoff.
+    function isCareerReadable(data) {
+      return data.visibility == 'public' || isMineOrPublic(data);
+    }
     match /career_experiences/{id} {
-      allow read: if isMineOrPublic(resource.data);
+      allow read: if isCareerReadable(resource.data);
       allow create, update, delete: if isOwner();
     }
     match /career_projects/{id} {
-      allow read: if isMineOrPublic(resource.data);
+      allow read: if isCareerReadable(resource.data);
       allow create, update, delete: if isOwner();
     }
     match /career_certificates/{id} {
-      allow read: if isMineOrPublic(resource.data);
+      allow read: if isCareerReadable(resource.data);
       allow create, update, delete: if isOwner();
     }
     match /career_awards/{id} {
-      allow read: if isMineOrPublic(resource.data);
+      allow read: if isCareerReadable(resource.data);
       allow create, update, delete: if isOwner();
     }
 
@@ -193,18 +204,33 @@ service cloud.firestore {
     }
 
     // Lightweight directory doc per signed-in user, upserted on every login — powers
-    // "search other users' public content." Holds no private data.
+    // "search other users' public content." Holds no private data, but DOES hold `email`, so
+    // (unlike public_profiles below) it stays auth-required rather than world-readable.
     match /users/{uid} {
       allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid && request.resource.data.uid == uid;
+    }
+
+    // v3.2.2: a small denormalized mirror of users/{uid} — {uid, displayName, username,
+    // photoURL, role, careerVisibility} only, deliberately never `email` — world-readable so an
+    // unauthenticated HR visitor hitting resume.html?u=... can resolve the resume owner's name/
+    // avatar/@handle and default-owner lookup (`where role == 'owner'`) without needing to read
+    // the (auth-required, email-bearing) users/{uid} doc. Kept in sync by whichever flow already
+    // writes the source field on users/{uid} (login.html, me.js's username save, career.js's
+    // Resume Visibility control) — see CLAUDE.md's "EdenAtlas v3.2.2" bullet.
+    match /public_profiles/{uid} {
+      allow read: if true;
       allow write: if request.auth != null && request.auth.uid == uid && request.resource.data.uid == uid;
     }
 
     // Reservation doc per @username, doc ID = the lowercase handle itself — "first writer
     // wins" comes for free from Firestore's create-vs-update distinction (the `allow create`
     // rule only ever fires when no doc with that ID exists yet; a rename deletes the old
-    // reservation and creates a new one, it never updates one in place).
+    // reservation and creates a new one, it never updates one in place). Read is world-open
+    // (v3.2.2, was auth-required) — the doc only ever holds {uid, createdAt}, nothing sensitive,
+    // and an unauthenticated resume.html?u=username visitor needs to resolve it to a uid.
     match /usernames/{username} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
       allow update: if false;
       allow delete: if request.auth != null && resource.data.uid == request.auth.uid;

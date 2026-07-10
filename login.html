@@ -195,6 +195,21 @@
       } catch (err) {
         console.error("[login] users profile upsert failed:", err);
       }
+      // v3.2.2: a world-readable mirror (no `email`) so an unauthenticated HR visitor on
+      // resume.html?u=... can resolve who they're looking at without reading the auth-required
+      // users/{uid} doc — see firestore.rules' public_profiles match block. `username` and
+      // `careerVisibility` are intentionally omitted here; they're merged in separately by
+      // whichever flow owns them (me.js's username save, career.js's Resume Visibility control).
+      try {
+        await setDoc(doc(db, "public_profiles", user.uid), {
+          uid: user.uid,
+          photoURL: user.photoURL || "",
+          role: mode.toLowerCase(),
+          ...(isNewUser ? { displayName: user.displayName || "" } : {}),
+        }, { merge: true });
+      } catch (err) {
+        console.error("[login] public_profiles upsert failed:", err);
+      }
     }
 
     onAuthStateChanged(auth, async (user) => {

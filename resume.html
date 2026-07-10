@@ -36,7 +36,7 @@
     }
   </script>
 </head>
-<body data-owner-only="true" class="auth-check-pending bg-darkBg text-white font-sans grid-bg min-h-screen pb-12">
+<body data-public-optional="true" class="auth-check-pending bg-darkBg text-white font-sans grid-bg min-h-screen pb-12">
   <header class="hidden max-w-7xl mx-auto px-4 pt-6">
     <div class="bg-cardBg/80 backdrop-blur-md neon-border-purple rounded-2xl px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
       <div class="flex items-center gap-3">
@@ -67,7 +67,7 @@
     </div>
   </header>
 
-  <div class="sticky top-4 z-30 max-w-6xl mx-auto px-4 mt-6">
+  <div class="sticky top-4 z-30 max-w-6xl mx-auto px-4 mt-6" id="career-subnav">
     <nav class="reveal bg-cardBg/90 backdrop-blur-md neon-border-purple rounded-2xl px-3 py-2.5 flex flex-wrap items-center justify-center gap-1.5 text-xs font-cyber font-bold tracking-wider text-textGray">
       <a href="#profile" class="px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Profile</a>
       <a href="#events" class="px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Leadership</a>
@@ -80,7 +80,34 @@
 
   <div id="auth-control" class="hidden"></div>
 
-  <main class="max-w-6xl mx-auto px-4 mt-6 space-y-6">
+  <!-- v3.2.2: shown instead of #career-subnav/#career-main when this viewer isn't allowed to
+       see this resume (private, connections-only and not an accepted friend, or not found). -->
+  <div id="career-access-notice" class="hidden max-w-2xl mx-auto px-4 mt-10">
+    <div class="reveal bg-cardBg/90 backdrop-blur-sm p-10 rounded-2xl neon-border-purple text-center">
+      <i class="fa-solid fa-lock text-3xl text-textGray"></i>
+      <p id="career-access-notice-text" class="mt-4 text-sm text-textGray"></p>
+    </div>
+  </div>
+
+  <main class="max-w-6xl mx-auto px-4 mt-6 space-y-6" id="career-main">
+
+    <!-- v3.2.2: owner-only — sets users/{uid}.careerVisibility, the page-level gate that decides
+         who can open this resume at all (per-item Public/Trusted Connections/Private below still
+         filters individual entries on top of this). -->
+    <section id="career-visibility-card" class="hidden reveal bg-cardBg/90 backdrop-blur-sm p-5 rounded-2xl neon-border-purple flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div>
+        <h2 class="font-cyber font-bold text-sm text-white" data-i18n="career.public_resume_link">Public Resume Link</h2>
+        <p class="text-xs text-textGray mt-1" data-i18n="career.visibility_hint">Anyone with this link can view your public career profile.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <select id="career-visibility-select" class="bg-darkBg/60 border border-borderNeon rounded-lg px-3 py-2 text-xs text-white">
+          <option value="private" data-i18n="common.private">Private</option>
+          <option value="connections" data-i18n="career.visibility_connections_label">Trusted Connections</option>
+          <option value="public" data-i18n="career.visibility_public_label">Public / HR Link</option>
+        </select>
+        <span id="career-visibility-status" class="text-xs font-code text-textGray whitespace-nowrap"></span>
+      </div>
+    </section>
 
     <!-- Profile: slim header + essentials (education folded in, no charts/percentages) -->
     <section id="profile" class="reveal scroll-mt-24 bg-cardBg/90 backdrop-blur-sm p-8 rounded-2xl neon-border-purple">
@@ -336,6 +363,7 @@
         </div>
         <div class="flex items-center gap-4 text-xs font-code text-textGray">
           <label class="flex items-center gap-1.5"><input type="radio" name="experience-visibility" value="public" checked> Public</label>
+          <label class="flex items-center gap-1.5"><input type="radio" name="experience-visibility" value="connections"> <span data-i18n="career.visibility_connections_label">Trusted Connections</span></label>
           <label class="flex items-center gap-1.5"><input type="radio" name="experience-visibility" value="private"> Private</label>
         </div>
         <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all">SAVE</button>
@@ -441,6 +469,7 @@
         </div>
         <div class="flex items-center gap-4 text-xs font-code text-textGray">
           <label class="flex items-center gap-1.5"><input type="radio" name="project-visibility" value="public" checked> Public</label>
+          <label class="flex items-center gap-1.5"><input type="radio" name="project-visibility" value="connections"> <span data-i18n="career.visibility_connections_label">Trusted Connections</span></label>
           <label class="flex items-center gap-1.5"><input type="radio" name="project-visibility" value="private"> Private</label>
         </div>
         <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all">SAVE</button>
@@ -534,6 +563,7 @@
         </div>
         <div class="flex items-center gap-4 text-xs font-code text-textGray">
           <label class="flex items-center gap-1.5"><input type="radio" name="certificate-visibility" value="public" checked> Public</label>
+          <label class="flex items-center gap-1.5"><input type="radio" name="certificate-visibility" value="connections"> <span data-i18n="career.visibility_connections_label">Trusted Connections</span></label>
           <label class="flex items-center gap-1.5"><input type="radio" name="certificate-visibility" value="private"> Private</label>
         </div>
         <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all">SAVE</button>
@@ -580,6 +610,7 @@
         </div>
         <div class="flex items-center gap-4 text-xs font-code text-textGray">
           <label class="flex items-center gap-1.5"><input type="radio" name="award-visibility" value="public" checked> Public</label>
+          <label class="flex items-center gap-1.5"><input type="radio" name="award-visibility" value="connections"> <span data-i18n="career.visibility_connections_label">Trusted Connections</span></label>
           <label class="flex items-center gap-1.5"><input type="radio" name="award-visibility" value="private"> Private</label>
         </div>
         <button type="submit" class="w-full px-5 py-2.5 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all">SAVE</button>

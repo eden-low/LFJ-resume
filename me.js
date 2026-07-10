@@ -165,6 +165,7 @@ saveDisplaynameBtn.addEventListener("click", async () => {
   saveDisplaynameBtn.disabled = true;
   try {
     await setDoc(doc(db, "users", user.uid), { uid: user.uid, displayName: next }, { merge: true });
+    await setDoc(doc(db, "public_profiles", user.uid), { uid: user.uid, displayName: next }, { merge: true });
     invalidateIdentityCache(user.uid);
     displaynameStatus.textContent = t("common.saved");
     renderHeader(user);
@@ -236,6 +237,7 @@ saveUsernameBtn.addEventListener("click", async () => {
 
   try {
     await setDoc(doc(db, "users", user.uid), { uid: user.uid, username: next }, { merge: true });
+    await setDoc(doc(db, "public_profiles", user.uid), { uid: user.uid, username: next }, { merge: true });
     currentUsername = next;
     invalidateIdentityCache(user.uid);
     usernameStatus.textContent = t("me.username_saved");

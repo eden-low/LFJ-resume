@@ -1,4 +1,4 @@
-import { auth, db, getUserMode } from "./firebase-init.js";
+import { auth, db, getUserMode, isOwner } from "./firebase-init.js";
 import { t as i18nT } from "./js/i18n.js";
 import { publicDisplayName, formatHandle } from "./js/identity.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
@@ -41,6 +41,7 @@ const targetUsername = (urlParams.get("u") || "").trim().toLowerCase();
 const targetUidParam = urlParams.get("uid");
 
 const headerEl = document.getElementById("profile-header");
+const resumeCta = document.getElementById("resume-cta");
 const privateNotice = document.getElementById("private-notice");
 const contentSection = document.getElementById("profile-content");
 const statsEl = document.getElementById("profile-stats");
@@ -246,6 +247,19 @@ function renderJournalList(journals) {
       return el;
     })
   );
+}
+
+// ---- View Resume / View Career Profile CTA (v3.2.2) — links out to resume.html's own public/
+// friend viewer mode rather than duplicating any Career UI here. Shown when: I'm viewing my own
+// profile, I'm the app Owner (full access everywhere), the target's careerVisibility is public,
+// or it's connections-tier and I'm an accepted friend of the target. Missing careerVisibility
+// defaults to private (hidden), matching career.js's own default. ----
+function renderResumeCta({ careerVisibility, isSelf, isFriend, targetUid, username }) {
+  const canView = isSelf || isOwner(auth.currentUser) || careerVisibility === "public"
+    || (careerVisibility === "connections" && isFriend);
+  resumeCta.classList.toggle("hidden", !canView);
+  if (!canView) return;
+  resumeCta.href = username ? `resume.html?u=${encodeURIComponent(username)}` : `resume.html?uid=${encodeURIComponent(targetUid)}`;
 }
 
 // ---- Career (public subset — Career is Owner-only to write, so this is usually only
@@ -517,8 +531,9 @@ let cachedProfilePerson = null;
 
 function rerenderAll() {
   if (!cachedProfileData) return;
-  const { photos, journals, events, habits, careerExperiences, careerProjects } = cachedProfileData;
+  const { photos, journals, events, habits, careerExperiences, careerProjects, careerVisibility, isSelf, isFriend, targetUid, username } = cachedProfileData;
   renderStats({ photos, journals, events, habits });
+  renderResumeCta({ careerVisibility, isSelf, isFriend, targetUid, username });
   renderCareer(careerExperiences, careerProjects);
   renderAlbumTiles(photos);
   renderPhotoGrid();
@@ -592,7 +607,10 @@ async function loadProfile() {
   photos.sort((a, b) => (b.uploadedAt?.toMillis?.() || 0) - (a.uploadedAt?.toMillis?.() || 0));
   allPublicPhotos = photos;
   activeAlbum = null;
-  cachedProfileData = { photos, journals, events, habits, careerExperiences, careerProjects };
+  cachedProfileData = {
+    photos, journals, events, habits, careerExperiences, careerProjects,
+    careerVisibility: person.careerVisibility, isSelf, isFriend, targetUid, username: person.username,
+  };
 
   contentSection.classList.remove("hidden");
   rerenderAll();

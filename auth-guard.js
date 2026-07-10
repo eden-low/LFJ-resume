@@ -32,6 +32,14 @@ async function updateNotifBadge(user) {
 onAuthStateChanged(auth, (user) => {
   clearTimeout(fallbackTimer);
   if (!user) {
+    // v3.2.2: a page opts out of the login redirect via `<body data-public-optional="true">`
+    // (currently only resume.html) so an unauthenticated HR visitor can open a public resume
+    // link — the page itself is responsible for only rendering content its own read rules
+    // actually allow an anonymous request to see (see career.js's access-level gating).
+    if (document.body.dataset.publicOptional === "true") {
+      document.body.classList.remove("auth-check-pending");
+      return;
+    }
     const here = location.pathname.split("/").pop() || "index.html";
     location.href = "login.html?redirect=" + encodeURIComponent(here);
     return;

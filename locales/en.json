@@ -160,7 +160,15 @@
     "category_work": "Work",
     "contact_header": "Contact",
     "education_header": "Education",
-    "leadership_header": "Leadership & Events"
+    "leadership_header": "Leadership & Events",
+    "public_resume_link": "Public Resume Link",
+    "visibility_hint": "Anyone with this link can view your public career profile.",
+    "visibility_connections_label": "Trusted Connections",
+    "visibility_public_label": "Public / HR Link",
+    "visibility_saved": "Visibility saved.",
+    "resume_private_notice": "This resume is private.",
+    "resume_connections_notice": "This resume is only visible to trusted connections.",
+    "resume_not_found": "This resume could not be found."
   },
   "memories": {
     "title": "Memories",
@@ -498,6 +506,8 @@
     "habit_completion": "Habit completion",
     "joined": "Joined {date}",
     "private_notice": "This profile is private.",
+    "view_resume": "View Resume",
+    "view_career_profile": "View Career Profile",
     "recent_activity": "Recent Activity",
     "public_timeline": "Public Timeline",
     "public_journal": "Public Journal",
