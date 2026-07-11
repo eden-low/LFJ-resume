@@ -807,6 +807,27 @@ backend, no API key, no rules changes, no field renames, no Atlas/profile code c
    100-most-recent cap could slice out an *old* doc that just had its location added —
    `updatedAt` now participates first. `service-worker.js` `CACHE` bumped to `eden-shell-v13`
    so stale pre-v3.4.2 runtime-cached page JS gets purged on SW update.
+8. **Second follow-up (edited-item pin still missing live)** — the reported "orderBy/limit
+   truncation" hypothesis was verified **false**: no Atlas query uses `orderBy`/`limit` at all
+   (My Atlas fetches every own doc; Connections' only cap is the client-side, now
+   updatedAt-aware `slice(0,100)`), so no `orderBy("updatedAt")` merge query was added — it
+   would also demand a composite index, against this repo's convention. Real fixes shipped
+   instead: (a) **coordinate parsing** — `clusterItems()` used `!= null` truthy-ish checks, so
+   one doc with unparseable coords could throw inside the marker loop (`L.marker` on an
+   invalid LatLng aborts rendering for every later cluster — "the map only shows one pin") or
+   crash Connections' `toFixed()` rounding; a `parseCoord()` helper (0-safe, accepts numeric
+   strings, rejects NaN/blank) now gates the coords branch, and invalid-coord items degrade to
+   Saved Places when they still carry place text; (b) **spurious-input guard** in
+   `js/location-search.js` — mobile autocorrect/autocapitalize can fire `input` without
+   changing the text, which used to silently drop just-selected coordinates before save; the
+   rename listener now ignores events whose trimmed text still equals the selected result's
+   name; (c) **opt-in debug tracing** (`localStorage.setItem("eden_atlas_debug","1")`):
+   atlas.js logs per-collection fetch counts, cluster stats (withCoords/placeOnly/
+   invalidCoords/noLocation) and per-item skip reasons, and gallery/journal/timeline log the
+   exact edit `updateDoc` payload after a successful save — silent by default; (d)
+   `atlas.html`/`atlas.js` added to `PRECACHE` (a pre-existing omission since v2.7) and
+   `CACHE` bumped to `eden-shell-v14`. Cluster keys are place-text-based, so distinct places
+   (Subang vs Kampar) can never merge into one pin — verified, no clustering change needed.
 
 ## Architecture
 

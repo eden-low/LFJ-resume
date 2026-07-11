@@ -584,6 +584,8 @@ postEditForm.addEventListener("submit", async (event) => {
   };
   try {
     await updateDoc(doc(db, "photos", id), payload);
+    // Same opt-in switch as atlas.js — verifies exactly what the edit wrote to Firestore.
+    if (localStorage.getItem("eden_atlas_debug") === "1") console.log("[gallery:debug] edit saved", id, payload);
     postEditStatus.textContent = i18nT("common.saved");
     await fetchVisiblePosts();
     closeEditModal();

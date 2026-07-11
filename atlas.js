@@ -8,6 +8,17 @@ import {
   getDocs,
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 
+// Opt-in debug tracing (v3.4.2 follow-up): run
+//   localStorage.setItem("eden_atlas_debug", "1")
+// in the console and reload to see per-collection fetch counts, cluster stats, and the
+// reason every location-less/invalid item was skipped. Silent by default.
+const ATLAS_DEBUG = (() => {
+  try { return localStorage.getItem("eden_atlas_debug") === "1"; } catch { return false; }
+})();
+function dbg(...args) {
+  if (ATLAS_DEBUG) console.log("[atlas:debug]", ...args);
+}
+
 const scopeTabs = document.querySelectorAll(".scope-tab");
 const atlasCount = document.getElementById("atlas-count");
 const atlasEmpty = document.getElementById("atlas-empty");
@@ -94,9 +105,21 @@ async function mergeMinePublic(name) {
 // behavior as before) and placeClusters (items with only a locationName/locationAddress,
 // grouped by name into the new Saved Places section — coordinates were never required for a
 // place to belong in the Atlas). Old docs missing every location field are skipped as before.
+// Coordinates may arrive as numbers or numeric strings; 0 is a valid coordinate, so this
+// parses instead of truthy-checking, and rejects NaN/blank. One unparseable doc used to be
+// able to abort marker rendering mid-loop (L.marker throws on an invalid LatLng, killing
+// every pin after it — "the map only shows one pin"), or crash the Connections tab's
+// toFixed() rounding; now it degrades to Saved Places (if it has place text) or is skipped.
+function parseCoord(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function clusterItems(photos, journals, events, precision) {
   const clusters = new Map();
   const places = new Map();
+  const stats = { withCoords: 0, placeOnly: 0, invalidCoords: 0, noLocation: 0 };
   function round(n) {
     return precision != null ? Number(n.toFixed(precision)) : n;
   }
@@ -109,9 +132,13 @@ function clusterItems(photos, journals, events, precision) {
   }
   function addItem(item, type) {
     const placeText = item.locationName || item.locationAddress;
-    if (item.latitude != null && item.longitude != null) {
-      const lat = round(item.latitude);
-      const lon = round(item.longitude);
+    const parsedLat = parseCoord(item.latitude);
+    const parsedLon = parseCoord(item.longitude);
+    const rawHadCoords = item.latitude != null && item.latitude !== "" && item.longitude != null && item.longitude !== "";
+    if (parsedLat != null && parsedLon != null) {
+      stats.withCoords++;
+      const lat = round(parsedLat);
+      const lon = round(parsedLon);
       const key = (placeText || `${lat},${lon}`).trim().toLowerCase() || `${lat},${lon}`;
       if (!clusters.has(key)) {
         clusters.set(key, {
@@ -126,6 +153,12 @@ function clusterItems(photos, journals, events, precision) {
       }
       bump(clusters.get(key), item, type);
     } else if (placeText) {
+      if (rawHadCoords) {
+        stats.invalidCoords++;
+        dbg(`${type} ${item.id || "?"}: invalid coordinates (${JSON.stringify(item.latitude)}, ${JSON.stringify(item.longitude)}) — falling back to Saved Places`);
+      } else {
+        stats.placeOnly++;
+      }
       const key = placeText.trim().toLowerCase();
       if (!places.has(key)) {
         places.set(key, {
@@ -140,11 +173,20 @@ function clusterItems(photos, journals, events, precision) {
       const c = places.get(key);
       if (item.locationName && item.locationAddress && !c.address) c.address = item.locationAddress;
       bump(c, item, type);
+    } else {
+      if (rawHadCoords) {
+        stats.invalidCoords++;
+        dbg(`${type} ${item.id || "?"}: invalid coordinates and no place text — skipped`);
+      } else {
+        stats.noLocation++;
+      }
     }
   }
   photos.forEach((p) => addItem(p, "memories"));
   journals.forEach((j) => addItem(j, "journal"));
   events.forEach((e) => addItem(e, "journey"));
+  dbg("cluster stats:", stats, `→ ${clusters.size} map cluster(s), ${places.size} saved place(s)`);
+  if (ATLAS_DEBUG) dbg("map cluster keys:", [...clusters.keys()]);
   return { mapClusters: [...clusters.values()], placeClusters: [...places.values()] };
 }
 
@@ -155,6 +197,10 @@ async function loadMineClusters() {
     fetchMyOnly("journals"),
     fetchMyOnly("life_events"),
   ]);
+  // No orderBy/limit anywhere in this scope: every own doc (any visibility, any age) is
+  // fetched, so a years-old memory that just gained a location via the edit modal is
+  // always in this input set — inclusion is decided purely by clusterItems above.
+  dbg("mine fetched:", { photos: photos.length, journals: journals.length, events: events.length });
   mineClusters = clusterItems(photos, journals, events, null);
   return mineClusters;
 }
@@ -201,6 +247,11 @@ async function loadConnectionsClusters() {
     Promise.all(friendUids.map((uid) => fetchConnectionsFor("life_events", uid))),
   ]);
 
+  dbg("connections fetched:", {
+    publicPhotos: photos.length, publicJournals: journals.length, publicEvents: events.length,
+    friendUids: friendUids.length,
+    connPhotos: connPhotos.flat().length, connJournals: connJournals.flat().length, connEvents: connEvents.flat().length,
+  });
   connectionsClusters = clusterItems(
     recent(photos).concat(...connPhotos),
     recent(journals).concat(...connJournals),

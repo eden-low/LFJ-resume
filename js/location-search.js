@@ -69,6 +69,12 @@ export function wirePlaceSearch(prefix, onCoordsChange) {
   const statusEl = document.getElementById(`${prefix}-place-search-status`);
   const resultsEl = document.getElementById(`${prefix}-place-results`);
 
+  // Name of the most recently selected result — lets the input listener below tell a real
+  // manual rename apart from a spurious input event (mobile autocorrect/autocapitalize and
+  // some extensions fire "input" without actually changing the text, which used to silently
+  // drop the just-selected coordinates before save).
+  let selectedName = null;
+
   function setStatus(text) {
     statusEl.textContent = text || "";
     statusEl.classList.toggle("hidden", !text);
@@ -118,6 +124,7 @@ export function wirePlaceSearch(prefix, onCoordsChange) {
           latInput.value = r.latitude;
           lonInput.value = r.longitude;
           hintInput.value = "place_resolved";
+          selectedName = r.name.trim();
           clearResults();
           setStatus("");
           onCoordsChange();
@@ -129,11 +136,14 @@ export function wirePlaceSearch(prefix, onCoordsChange) {
     resultsEl.classList.remove("hidden");
   });
 
-  // Safer fallback (Task 5): a manual rename after selecting a result un-links the saved
+  // Safer fallback: a manual rename after selecting a result un-links the saved
   // coordinates — the text may no longer describe that pin. Programmatic .value writes
-  // (result selection, edit-modal prefill) don't fire "input", so they're unaffected.
+  // (result selection, edit-modal prefill) don't fire "input", so they're unaffected; and
+  // an input event whose text still equals the selected name (mobile autocorrect quirks)
+  // is ignored rather than treated as a rename.
   nameInput.addEventListener("input", () => {
     if (hintInput.value !== "place_resolved") return;
+    if (selectedName !== null && nameInput.value.trim() === selectedName) return;
     hintInput.value = "";
     latInput.value = "";
     lonInput.value = "";

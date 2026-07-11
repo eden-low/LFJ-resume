@@ -559,6 +559,8 @@ journalEditForm.addEventListener("submit", async (event) => {
   };
   try {
     await updateDoc(doc(db, "journals", id), payload);
+    // Same opt-in switch as atlas.js — verifies exactly what the edit wrote to Firestore.
+    if (localStorage.getItem("eden_atlas_debug") === "1") console.log("[journal:debug] edit saved", id, payload);
     journalEditStatus.textContent = i18nT("common.saved");
     await fetchVisibleEntries();
     closeEditModal();

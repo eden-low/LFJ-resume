@@ -1,17 +1,17 @@
 // Minimal network-first service worker for offline shell caching.
 // Deliberately bypasses Firebase/CDN/weather hosts so it never interferes with
 // the auth flow, live Firestore/Storage reads, or third-party API calls.
-const CACHE = "eden-shell-v13";
+const CACHE = "eden-shell-v14";
 
 const PRECACHE = [
   "index.html", "resume.html", "gallery.html", "journal.html", "expenses.html",
   "timeline.html", "dashboard.html", "contact.html", "login.html", "settings.html",
   "habits.html", "notifications.html", "calendar.html", "reports.html",
-  "profile.html",
+  "profile.html", "atlas.html",
   "styles.css", "scripts.js", "firebase-init.js", "auth-guard.js", "global-search.js",
   "gallery.js", "expenses.js", "journal.js", "timeline.js", "dashboard.js", "settings.js",
   "habits.js", "notifications.js", "export.js", "calendar.js", "insights.js",
-  "profile.js", "career.js",
+  "profile.js", "career.js", "atlas.js",
   "js/i18n.js", "js/mobile-nav.js", "js/sidebar.js", "js/splash.js", "js/location-search.js",
   "locales/en.json", "locales/zh-CN.json",
   "manifest.json", "images/icon-192.png", "images/icon-512.png", "images/logo-mark.png",
