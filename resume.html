@@ -92,11 +92,13 @@
   <div class="sticky top-4 z-30 max-w-6xl mx-auto px-4 mt-6" id="career-subnav">
     <nav class="reveal bg-cardBg/90 backdrop-blur-md neon-border-purple rounded-2xl px-3 py-2.5 flex flex-wrap items-center justify-center gap-1.5 text-xs font-cyber font-bold tracking-wider text-textGray">
       <a href="#profile" class="px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Profile</a>
-      <a href="#events" class="px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Leadership</a>
+      <a href="#education" class="px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Education</a>
       <a href="#experience" class="px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Experience</a>
       <a href="#projects" class="px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Projects</a>
+      <a href="#events" class="px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Leadership</a>
       <a href="#certificates" class="px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Certificates</a>
       <a href="#inventory" class="px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Awards</a>
+      <a href="#skills" class="px-3 py-1.5 rounded-full hover:text-neonPurple hover:bg-neonPurple/10 transition-colors">Skills</a>
     </nav>
   </div>
 
@@ -131,7 +133,7 @@
       </div>
     </section>
 
-    <!-- Profile: slim header + essentials (education folded in, no charts/percentages) -->
+    <!-- Header / Contact + Profile Summary (resume formula §1–2) -->
     <section id="profile" class="reveal scroll-mt-24 bg-cardBg/90 backdrop-blur-sm p-8 rounded-2xl neon-border-purple">
       <div class="flex flex-col lg:flex-row lg:items-center gap-8">
         <div class="w-32 h-32 rounded-full bg-darkBg border-2 border-neonPurple flex items-center justify-center flex-shrink-0">
@@ -139,92 +141,64 @@
         </div>
         <div class="flex-1">
           <h1 class="font-cyber font-black text-3xl text-white">Low Fang Jun</h1>
-          <p class="text-textGray mt-3 leading-relaxed">Undergraduate student of Business Information Systems, specializing in system design, data security, and web programming — comfortable across Python, Java, SQL, HTML, and CSS.</p>
-          <div class="mt-4 flex flex-wrap gap-2">
-            <span class="px-3 py-1 rounded-full border border-neonPurple/40 text-neonPurple text-xs font-code">BIS Analyst</span>
-            <span class="px-3 py-1 rounded-full border border-neonBlue/40 text-neonBlue text-xs font-code">Software Engineer</span>
-            <span class="px-3 py-1 rounded-full border border-emerald-500/40 text-emerald-400 text-xs font-code">Web Developer</span>
+          <p class="text-sm text-neonPurple font-code mt-1.5">Business Information Systems Undergraduate &middot; Web Developer</p>
+          <!-- TODO: Future: add public contact visibility controls for resume contact fields.
+               Email/phone below are static markup (not read from users/{uid} or the auth provider),
+               so this is not itself a data exposure of any Firestore/Auth field — but there's no
+               per-viewer control over whether an anonymous HR visitor sees them either. -->
+          <div class="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs font-code text-textGray">
+            <a href="mailto:jjun8647@gmail.com" class="hover:text-neonPurple transition-colors"><i class="fa-solid fa-envelope mr-1.5 text-neonPurple"></i>jjun8647@gmail.com</a>
+            <span><i class="fa-solid fa-phone mr-1.5 text-neonBlue"></i>011-10574969</span>
+            <a href="https://github.com/eden-low" target="_blank" rel="noopener" class="hover:text-neonPurple transition-colors"><i class="fa-brands fa-github mr-1.5 text-white"></i>github.com/eden-low</a>
+            <a href="index.html" class="hover:text-neonPurple transition-colors"><i class="fa-solid fa-globe mr-1.5 text-emerald-400"></i>EdenAtlas &mdash; Portfolio</a>
+            <span><i class="fa-solid fa-location-dot mr-1.5 text-rose-400"></i>Kuching, Sarawak, Malaysia</span>
           </div>
         </div>
       </div>
 
-      <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- TODO: Future: add public contact visibility controls for resume contact fields.
-             Email/phone below are static markup (not read from users/{uid} or the auth provider),
-             so this is not itself a data exposure of any Firestore/Auth field — but there's no
-             per-viewer control over whether an anonymous HR visitor sees them either. -->
-        <div class="bg-darkBg/60 border border-borderNeon rounded-xl p-6 text-sm text-textGray space-y-3">
-          <h2 class="font-cyber font-bold text-white text-sm tracking-wider mb-1" data-i18n="career.contact_header">Contact</h2>
-          <div class="flex justify-between"><span data-i18n="contact.email">Email</span><a href="mailto:jjun8647@gmail.com" class="text-white hover:text-neonPurple">jjun8647@gmail.com</a></div>
-          <div class="flex justify-between"><span data-i18n="contact.phone">Phone</span><span class="text-white">011-10574969</span></div>
-          <div class="flex justify-between"><span data-i18n="common.location">Location</span><span class="text-white text-right">Kuching, Sarawak, Malaysia</span></div>
-        </div>
-
-        <div class="bg-darkBg/60 border border-borderNeon rounded-xl p-6 text-sm text-textGray space-y-3">
-          <h2 class="font-cyber font-bold text-white text-sm tracking-wider mb-1" data-i18n="career.education_header">Education</h2>
-          <div>
-            <p class="text-white font-medium">Universiti Tunku Abdul Rahman (UTAR)</p>
-            <p class="text-xs mt-0.5">Bachelor of Information Systems (Honours), Business Information Systems &middot; 2023–2026 &middot; CGPA 2.86</p>
-          </div>
-          <div class="pt-2 border-t border-borderNeon/40">
-            <p class="text-white font-medium">International College of Advanced Technology Sarawak (iCATS)</p>
-            <p class="text-xs mt-0.5">Diploma in Software Engineering &middot; 2020–2023 &middot; CGPA 3.22</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="mt-6 flex flex-wrap gap-2">
-        <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Python</span>
-        <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">SQL</span>
-        <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">HTML &amp; CSS</span>
-        <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Java (OOP)</span>
-        <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">MonsoonSIM</span>
+      <div class="mt-8 bg-darkBg/60 border border-borderNeon rounded-xl p-6">
+        <h2 class="font-cyber font-bold text-white text-sm tracking-wider" data-i18n="career.summary_header">Profile Summary</h2>
+        <p class="text-sm text-textGray mt-3 leading-relaxed">Business Information Systems undergraduate at UTAR with a focus on system design, data security, and web programming. Built and shipped EdenAtlas, a Firebase-backed personal life platform with role-based access and a public resume surface, end to end. Comfortable across HTML, CSS, JavaScript, Python, and SQL, with proven leadership experience chairing a 300-participant university event.</p>
       </div>
     </section>
 
-    <!-- Leadership & Events: slimmed to a compact list, no per-item paragraphs -->
-    <section id="events" class="reveal scroll-mt-24 bg-cardBg/90 backdrop-blur-sm p-6 rounded-2xl neon-border-purple">
-      <h1 class="font-cyber font-black text-3xl text-white" data-i18n="career.leadership_header">Leadership & Events</h1>
-      <div class="mt-5 divide-y divide-borderNeon/40">
-        <div class="flex items-center gap-3 py-3">
-          <i data-lucide="users" class="w-4 h-4 text-neonPurple flex-shrink-0"></i>
-          <span class="text-sm text-white flex-1">Chairperson &mdash; Ice Breaking Telematch</span>
-          <span class="text-[11px] font-code text-textGray flex-shrink-0">Mar 2026</span>
+    <!-- Education (resume formula §2) -->
+    <section id="education" class="reveal scroll-mt-24 bg-cardBg/90 backdrop-blur-sm p-6 rounded-2xl neon-border-purple">
+      <h1 class="font-cyber font-black text-3xl text-white" data-i18n="career.education_header">Education</h1>
+      <div class="mt-5 space-y-4">
+        <div class="bg-darkBg/60 border border-borderNeon rounded-xl p-5">
+          <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1">
+            <div class="min-w-0">
+              <p class="font-cyber font-bold text-sm text-white">Bachelor of Information Systems (Honours), Business Information Systems</p>
+              <p class="text-xs text-neonPurple font-code mt-0.5">Universiti Tunku Abdul Rahman (UTAR)</p>
+            </div>
+            <span class="text-[11px] font-code text-textGray flex-shrink-0">2023 &ndash; 2026</span>
+          </div>
+          <ul class="mt-3 text-xs text-textGray space-y-1 list-disc list-inside leading-relaxed">
+            <li>CGPA 2.86</li>
+            <li>Relevant coursework: system design, data security, and web programming</li>
+          </ul>
         </div>
-        <div class="flex items-center gap-3 py-3">
-          <i data-lucide="users" class="w-4 h-4 text-neonBlue flex-shrink-0"></i>
-          <span class="text-sm text-white flex-1">Chairperson &mdash; Buddhist Society Welcoming Night</span>
-          <span class="text-[11px] font-code text-textGray flex-shrink-0">Oct 2024</span>
-        </div>
-        <div class="flex items-center gap-3 py-3">
-          <i data-lucide="compass" class="w-4 h-4 text-emerald-400 flex-shrink-0"></i>
-          <span class="text-sm text-white flex-1">Program Leader &mdash; ISC 2025</span>
-          <span class="text-[11px] font-code text-textGray flex-shrink-0">2025</span>
-        </div>
-        <div class="flex items-center gap-3 py-3">
-          <i data-lucide="wrench" class="w-4 h-4 text-amber-400 flex-shrink-0"></i>
-          <span class="text-sm text-white flex-1">Technical Head &mdash; Sport Glory Color Run</span>
-          <span class="text-[11px] font-code text-textGray flex-shrink-0">&mdash;</span>
-        </div>
-        <div class="flex items-center gap-3 py-3">
-          <i data-lucide="handshake" class="w-4 h-4 text-rose-400 flex-shrink-0"></i>
-          <span class="text-sm text-white flex-1">HR &amp; Sponsor Committee &mdash; IBT</span>
-          <span class="text-[11px] font-code text-textGray flex-shrink-0">Feb 2025</span>
-        </div>
-        <div class="flex items-center gap-3 py-3">
-          <i data-lucide="users" class="w-4 h-4 text-purple-400 flex-shrink-0"></i>
-          <span class="text-sm text-white flex-1">HR Committee &mdash; Warrior 3.0</span>
-          <span class="text-[11px] font-code text-textGray flex-shrink-0">&mdash;</span>
+        <div class="bg-darkBg/60 border border-borderNeon rounded-xl p-5">
+          <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1">
+            <div class="min-w-0">
+              <p class="font-cyber font-bold text-sm text-white">Diploma in Software Engineering</p>
+              <p class="text-xs text-neonPurple font-code mt-0.5">International College of Advanced Technology Sarawak (iCATS)</p>
+            </div>
+            <span class="text-[11px] font-code text-textGray flex-shrink-0">2020 &ndash; 2023</span>
+          </div>
+          <ul class="mt-3 text-xs text-textGray space-y-1 list-disc list-inside leading-relaxed">
+            <li>CGPA 3.22</li>
+          </ul>
         </div>
       </div>
     </section>
-
-    <!-- Experience (Career CMS: career_experiences) -->
+    <!-- Experience (Career CMS: career_experiences; resume formula §3) -->
     <section id="experience" class="reveal scroll-mt-24 bg-cardBg/90 backdrop-blur-sm p-6 rounded-2xl neon-border-purple">
       <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
           <h1 class="font-cyber font-black text-3xl text-white" data-i18n="career.experience">Experience</h1>
-          <p class="text-textGray mt-3">Working experience and part-time roles that supported teamwork, sales, and operational reliability.</p>
+          <p class="text-textGray mt-3">Internships and working roles &mdash; responsibilities, tools used, and outcomes.</p>
         </div>
         <button id="add-experience-btn" type="button" class="hidden px-4 py-2 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all whitespace-nowrap">
           <i class="fa-solid fa-plus mr-1.5"></i> <span data-i18n="career.add_experience">Add Experience</span>
@@ -267,6 +241,51 @@
       <p id="projects-empty" class="hidden text-center text-xs font-code text-textGray py-10" data-i18n="career.no_projects">Your next project could begin today.</p>
     </section>
 
+    <!-- Leadership & Events (static; resume formula §5 — role | event | date + scope/impact bullets) -->
+    <section id="events" class="reveal scroll-mt-24 bg-cardBg/90 backdrop-blur-sm p-6 rounded-2xl neon-border-purple">
+      <h1 class="font-cyber font-black text-3xl text-white" data-i18n="career.leadership_header">Leadership & Events</h1>
+      <div class="mt-5 bg-darkBg/60 border border-borderNeon rounded-xl p-5">
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1">
+          <div class="min-w-0">
+            <p class="font-cyber font-bold text-sm text-white">Chairperson</p>
+            <p class="text-xs text-neonPurple font-code mt-0.5">Ice Breaking Telematch 2026 &middot; University Orientation Event</p>
+          </div>
+          <span class="text-[11px] font-code text-textGray flex-shrink-0">Mar 2026</span>
+        </div>
+        <ul class="mt-3 text-xs text-textGray space-y-1 list-disc list-inside leading-relaxed">
+          <li>Led a university orientation telematch for around 300 new students, heading a committee of 40+ members.</li>
+          <li>Coordinated programme, logistics, publicity, HR, secretariat, and technical teams from planning through event day.</li>
+        </ul>
+      </div>
+      <div class="mt-4 divide-y divide-borderNeon/40">
+        <div class="flex items-center gap-3 py-3">
+          <i data-lucide="users" class="w-4 h-4 text-neonBlue flex-shrink-0"></i>
+          <span class="text-sm text-white flex-1">Chairperson &mdash; Buddhist Society Welcoming Night</span>
+          <span class="text-[11px] font-code text-textGray flex-shrink-0">Oct 2024</span>
+        </div>
+        <div class="flex items-center gap-3 py-3">
+          <i data-lucide="compass" class="w-4 h-4 text-emerald-400 flex-shrink-0"></i>
+          <span class="text-sm text-white flex-1">Program Leader &mdash; ISC 2025</span>
+          <span class="text-[11px] font-code text-textGray flex-shrink-0">2025</span>
+        </div>
+        <div class="flex items-center gap-3 py-3">
+          <i data-lucide="wrench" class="w-4 h-4 text-amber-400 flex-shrink-0"></i>
+          <span class="text-sm text-white flex-1">Technical Head &mdash; Sport Glory Color Run</span>
+          <span class="text-[11px] font-code text-textGray flex-shrink-0">&mdash;</span>
+        </div>
+        <div class="flex items-center gap-3 py-3">
+          <i data-lucide="handshake" class="w-4 h-4 text-rose-400 flex-shrink-0"></i>
+          <span class="text-sm text-white flex-1">HR &amp; Sponsor Committee &mdash; IBT</span>
+          <span class="text-[11px] font-code text-textGray flex-shrink-0">Feb 2025</span>
+        </div>
+        <div class="flex items-center gap-3 py-3">
+          <i data-lucide="users" class="w-4 h-4 text-purple-400 flex-shrink-0"></i>
+          <span class="text-sm text-white flex-1">HR Committee &mdash; Warrior 3.0</span>
+          <span class="text-[11px] font-code text-textGray flex-shrink-0">&mdash;</span>
+        </div>
+      </div>
+    </section>
+
     <!-- Certificates (Career CMS: career_certificates) -->
     <section id="certificates" class="reveal scroll-mt-24 bg-cardBg/90 backdrop-blur-sm p-6 rounded-2xl neon-border-purple">
       <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
@@ -282,12 +301,12 @@
       <p id="certificates-empty" class="hidden text-center text-xs font-code text-textGray py-10" data-i18n="career.no_certificates">Certificates you earn will show up here.</p>
     </section>
 
-    <!-- Awards (Career CMS: career_awards) + static Skills grid -->
+    <!-- Awards (Career CMS: career_awards; resume formula §6) -->
     <section id="inventory" class="reveal scroll-mt-24 bg-cardBg/90 backdrop-blur-sm p-6 rounded-2xl neon-border-purple">
       <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
           <h1 class="font-cyber font-black text-3xl text-white" data-i18n="career.awards">Awards</h1>
-          <p class="text-textGray mt-3">Awards, competition results, and core skills.</p>
+          <p class="text-textGray mt-3">Awards and competition results.</p>
         </div>
         <button id="add-award-btn" type="button" class="hidden px-4 py-2 bg-gradient-to-r from-neonViolet to-neonPurple rounded-xl text-xs font-cyber font-bold tracking-wider text-white hover:scale-105 transition-all whitespace-nowrap">
           <i class="fa-solid fa-plus mr-1.5"></i> <span data-i18n="career.add_award">Add Award</span>
@@ -295,32 +314,55 @@
       </div>
       <div id="awards-list" class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4"></div>
       <p id="awards-empty" class="hidden text-center text-xs font-code text-textGray py-10" data-i18n="career.no_awards">Recognition will find its place here.</p>
+    </section>
 
-      <div class="reveal-group mt-8 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
-        <div class="reveal bg-darkBg/80 p-4 rounded-xl border border-borderNeon hover:border-neonPurple hover:scale-105 transition-all duration-300 text-center relative">
-          <div class="w-12 h-12 rounded-full bg-neonPurple/10 flex items-center justify-center text-neonPurple text-xl mb-3"><i class="fa-brands fa-python"></i></div>
-          <span class="block font-cyber font-bold text-xs text-white">Python 3</span>
-          <span class="block text-[9px] text-textGray font-code mt-0.5">Primary Language</span>
+    <!-- Skills, Tools & Languages (static; resume formula §7) -->
+    <section id="skills" class="reveal scroll-mt-24 bg-cardBg/90 backdrop-blur-sm p-6 rounded-2xl neon-border-purple">
+      <h1 class="font-cyber font-black text-3xl text-white" data-i18n="career.skills_header">Skills &amp; Languages</h1>
+      <div class="mt-5 space-y-5">
+        <div class="flex flex-col sm:flex-row sm:items-baseline gap-2 sm:gap-4">
+          <span class="w-48 flex-shrink-0 font-cyber font-bold text-xs text-white tracking-wider" data-i18n="career.skills_languages">Languages</span>
+          <div class="flex flex-wrap gap-2">
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">English</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Mandarin</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Malay</span>
+          </div>
         </div>
-        <div class="reveal bg-darkBg/80 p-4 rounded-xl border border-borderNeon hover:border-neonBlue hover:scale-105 transition-all duration-300 text-center relative">
-          <div class="w-12 h-12 rounded-full bg-neonBlue/10 flex items-center justify-center text-neonBlue text-xl mb-3"><i class="fa-solid fa-database"></i></div>
-          <span class="block font-cyber font-bold text-xs text-white">SQL / DB</span>
-          <span class="block text-[9px] text-textGray font-code mt-0.5">Database</span>
+        <div class="flex flex-col sm:flex-row sm:items-baseline gap-2 sm:gap-4">
+          <span class="w-48 flex-shrink-0 font-cyber font-bold text-xs text-white tracking-wider" data-i18n="career.skills_programming">Programming &amp; Technical</span>
+          <div class="flex flex-wrap gap-2">
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">HTML</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">CSS</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">JavaScript</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Python</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">SQL</span>
+          </div>
         </div>
-        <div class="reveal bg-darkBg/80 p-4 rounded-xl border border-borderNeon hover:border-amber-400 hover:scale-105 transition-all duration-300 text-center relative">
-          <div class="w-12 h-12 rounded-full bg-amber-400/10 flex items-center justify-center text-amber-400 text-xl mb-3"><i class="fa-brands fa-html5"></i></div>
-          <span class="block font-cyber font-bold text-xs text-white">HTML5 & CSS3</span>
-          <span class="block text-[9px] text-textGray font-code mt-0.5">Markup & Styling</span>
+        <div class="flex flex-col sm:flex-row sm:items-baseline gap-2 sm:gap-4">
+          <span class="w-48 flex-shrink-0 font-cyber font-bold text-xs text-white tracking-wider" data-i18n="career.skills_platforms">Frameworks &amp; Platforms</span>
+          <div class="flex flex-wrap gap-2">
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Firebase Auth</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Firestore</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Firebase Storage</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">GitHub Pages</span>
+          </div>
         </div>
-        <div class="reveal bg-darkBg/80 p-4 rounded-xl border border-borderNeon hover:border-emerald-400 hover:scale-105 transition-all duration-300 text-center relative">
-          <div class="w-12 h-12 rounded-full bg-emerald-400/10 flex items-center justify-center text-emerald-400 text-xl mb-3"><i class="fa-brands fa-java"></i></div>
-          <span class="block font-cyber font-bold text-xs text-white">Java OOP</span>
-          <span class="block text-[9px] text-textGray font-code mt-0.5">OOP Language</span>
+        <div class="flex flex-col sm:flex-row sm:items-baseline gap-2 sm:gap-4">
+          <span class="w-48 flex-shrink-0 font-cyber font-bold text-xs text-white tracking-wider" data-i18n="career.skills_tools">Tools</span>
+          <div class="flex flex-wrap gap-2">
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Git</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">GitHub</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">VS Code</span>
+          </div>
         </div>
-        <div class="reveal bg-darkBg/80 p-4 rounded-xl border border-borderNeon hover:border-rose-400 hover:scale-105 transition-all duration-300 text-center relative">
-          <div class="w-12 h-12 rounded-full bg-rose-400/10 flex items-center justify-center text-rose-400 text-xl mb-3"><i class="fa-solid fa-chart-pie"></i></div>
-          <span class="block font-cyber font-bold text-xs text-white">MonsoonSIM</span>
-          <span class="block text-[9px] text-textGray font-code mt-0.5">Simulation Tool</span>
+        <div class="flex flex-col sm:flex-row sm:items-baseline gap-2 sm:gap-4">
+          <span class="w-48 flex-shrink-0 font-cyber font-bold text-xs text-white tracking-wider" data-i18n="career.skills_soft">Professional Skills</span>
+          <div class="flex flex-wrap gap-2">
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Leadership</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Communication</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Documentation</span>
+            <span class="px-3 py-1.5 rounded-full bg-darkBg/60 border border-borderNeon text-xs font-code text-textGray">Coordination</span>
+          </div>
         </div>
       </div>
     </section>

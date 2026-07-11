@@ -559,7 +559,7 @@ purely at the shell layer, no access-control change:
   markup, not read from `users/{uid}` or Auth, so this isn't a data-exposure regression) noting
   that per-viewer contact visibility controls are a future improvement, not yet built.
 
-**"EdenAtlas v3.3" (most recent) — "Friend Spaces."** Friends could already browse and
+**"EdenAtlas v3.3" — "Friend Spaces."** Friends could already browse and
 like/comment, but the audit for this pass found their *own* create rights were already correct
 at the rules layer for the shareable modules (`canParticipate()` = Owner or Friend has always
 gated `photos`/`journals`/`life_events`/`habits`/`collections` creation, each scoped to
@@ -631,6 +631,21 @@ included. This pass closes that gap rather than opening new ones:
    checklist from the v3.3 brief before treating this as fully verified in production, and run
    `npx firebase-tools deploy --only firestore:rules,storage` (not run automatically by this
    pass) to actually publish the rules changes.
+
+**"HR-ready resume restructure" (most recent)** — `resume.html`'s static content was reorganized
+into a standard resume formula, HTML + locale keys only (no `career.js`, rules, nav, or schema
+changes; the CMS sections and viewer/owner modes are untouched). New section order in
+`#career-main`: `#profile` (name + one-line headline + inline contact row with email/phone/
+GitHub/portfolio/location + a "Profile Summary" block), `#education` (new standalone section,
+`#experience` (CMS), `#projects` (CMS), `#events` Leadership & Events (moved after Projects; the
+IBT 2026 Chairperson entry is now a featured block with scope/impact bullets — ~300 students,
+40+ committee — the other entries stay compact rows), `#certificates` (CMS), `#inventory` Awards
+(CMS — the static skill-tile grid that used to live at its bottom is gone), and a new `#skills`
+section (grouped pill rows: Languages / Programming & Technical / Frameworks & Platforms /
+Tools / Professional Skills). `#career-subnav` gained Education/Skills anchors and follows the
+new order; section *ids* were still not renamed (`events`/`inventory` keep their legacy names).
+New `career.*` i18n keys in both locales: `summary_header`, `skills_header`, `skills_languages`,
+`skills_programming`, `skills_platforms`, `skills_tools`, `skills_soft`.
 
 ## Architecture
 
