@@ -332,6 +332,30 @@ function checkLikeNotifications(posts) {
   });
 }
 
+// Shared ownership-merge/dedup helper: every "all of my own photos" fetch in this file (the
+// normal feed's "mine" half, and the Trash view) goes through this one function instead of
+// each re-implementing its own uid+uploadedBy merge. Ownership is recognized on either the
+// current `uid` field or the legacy pre-v2.0 `uploadedBy` field (firestore.rules'
+// isPhotoMineOrPublic() accepts either) — a doc that happens to carry both is still only
+// returned once, deduped by Firestore document ID via the Map.
+async function fetchOwnPosts(uid) {
+  const map = new Map();
+  try {
+    const mineSnap = await getDocs(query(collection(db, "photos"), where("uid", "==", uid)));
+    mineSnap.forEach((d) => map.set(d.id, { id: d.id, ...d.data() }));
+  } catch (err) {
+    console.error("[gallery] own posts query failed:", err.code || err);
+  }
+  // Legacy posts from before the uploadedBy -> uid rename (no data migration was run).
+  try {
+    const legacySnap = await getDocs(query(collection(db, "photos"), where("uploadedBy", "==", uid)));
+    legacySnap.forEach((d) => map.set(d.id, { id: d.id, ...d.data() }));
+  } catch (err) {
+    console.error("[gallery] legacy own posts query failed:", err.code || err);
+  }
+  return [...map.values()];
+}
+
 async function fetchVisiblePosts() {
   const user = auth.currentUser;
   const posts = new Map();
@@ -344,20 +368,7 @@ async function fetchVisiblePosts() {
   }
 
   if (user) {
-    try {
-      const mineSnap = await getDocs(query(collection(db, "photos"), where("uid", "==", user.uid)));
-      mineSnap.forEach((d) => posts.set(d.id, { id: d.id, ...d.data() }));
-    } catch (err) {
-      console.error("[gallery] own posts query failed:", err.code || err);
-    }
-    // Legacy posts from before the uploadedBy -> uid rename (no data migration was run —
-    // firestore.rules accepts either field, so this keeps them visible client-side too).
-    try {
-      const legacySnap = await getDocs(query(collection(db, "photos"), where("uploadedBy", "==", user.uid)));
-      legacySnap.forEach((d) => posts.set(d.id, { id: d.id, ...d.data() }));
-    } catch (err) {
-      console.error("[gallery] legacy own posts query failed:", err.code || err);
-    }
+    (await fetchOwnPosts(user.uid)).forEach((p) => posts.set(p.id, p));
   }
 
   const list = [...posts.values()];
@@ -365,7 +376,10 @@ async function fetchVisiblePosts() {
 
   // Trashed Memories (deletedAt set) are excluded from every normal surface, including this
   // feed — the single shared js/memory-filters.js predicate every other consumer in the app
-  // also calls, so this is never re-implemented per-page.
+  // also calls, so this is never re-implemented per-page. A formerly-public trashed Memory is
+  // additionally excluded here for a second, independent reason: moving to Trash also flips
+  // `visibility` to "private" (see submitMoveToTrash), so it no longer matches the public query
+  // above even for a signed-in Viewer who isn't its owner — see the Trash section below for why.
   cachedPosts = excludeDeleted(list);
   await Promise.all(cachedPosts.map((post) => attachSocialCounts(post)));
 
@@ -374,18 +388,13 @@ async function fetchVisiblePosts() {
   checkLikeNotifications(cachedPosts);
 }
 
-// Owner-only Trash listing: reuses the exact same uid-scoped "mine" query already permitted
-// by firestore.rules (no composite index needed — deletedAt is filtered client-side, matching
-// this app's established index-avoidance convention), then keeps only the trashed ones.
+// Owner-only Trash listing: reuses the same ownership-merge helper the normal feed's "mine"
+// half uses (no composite index needed — deletedAt is filtered client-side, matching this
+// app's established index-avoidance convention), then keeps only the trashed ones.
 async function fetchTrashedPosts() {
   const user = auth.currentUser;
   if (!user) return [];
-  const map = new Map();
-  const mineSnap = await getDocs(query(collection(db, "photos"), where("uid", "==", user.uid)));
-  mineSnap.forEach((d) => map.set(d.id, { id: d.id, ...d.data() }));
-  const legacySnap = await getDocs(query(collection(db, "photos"), where("uploadedBy", "==", user.uid)));
-  legacySnap.forEach((d) => map.set(d.id, { id: d.id, ...d.data() }));
-  const list = [...map.values()].filter(isDeleted);
+  const list = (await fetchOwnPosts(user.uid)).filter(isDeleted);
   list.sort((a, b) => (b.deletedAt?.toMillis?.() || 0) - (a.deletedAt?.toMillis?.() || 0));
   return list;
 }
@@ -699,10 +708,16 @@ function trashCard(post) {
   const deletedDate = post.deletedAt?.toDate
     ? post.deletedAt.toDate().toLocaleDateString(undefined, { dateStyle: "medium" })
     : "";
+  // While trashed, `visibility` is always "private" (see submitMoveToTrash) — show the
+  // *original* value from visibilityBeforeTrash so it's clear what Restore brings it back to.
+  const vis = visibilityBadge(post.visibilityBeforeTrash || "private");
   el.innerHTML = `
     <img src="${post.url}" alt="" class="w-full h-28 object-cover opacity-70">
     <div class="p-2 space-y-1.5">
       <p class="text-[11px] text-white truncate">${post.caption || i18nT("common.untitled")}</p>
+      <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border ${vis.cls} text-[9px] font-code" title="${i18nT("memories.restores_to", { visibility: vis.label })}">
+        <i class="fa-solid ${vis.icon}"></i>${vis.label}
+      </span>
       ${deletedDate ? `<p class="text-[10px] font-code text-textGray">${i18nT("memories.deleted_on", { date: deletedDate })}</p>` : ""}
       <div class="flex items-center gap-1.5 pt-1">
         <button class="trash-restore-btn flex-1 px-2 py-1.5 bg-neonPurple/15 text-neonPurple rounded-lg text-[10px] font-cyber font-bold tracking-wider hover:bg-neonPurple/25 transition-colors">${i18nT("memories.restore")}</button>
@@ -789,14 +804,30 @@ async function submitMoveToTrash() {
   trashConfirmSubmit.textContent = i18nT("memories.trash_loading");
   trashConfirmError.classList.add("hidden");
   try {
+    // Security fix: excludeDeleted() is a UI filter, not access control — a trashed post that
+    // kept visibility:"public" would still be directly readable (get-by-id) and still match the
+    // public collection query (where("visibility","==","public")) for any signed-in Viewer,
+    // Firestore rules and query filters both being entirely independent of deletedAt. Preserving
+    // the exact prior value in visibilityBeforeTrash and flipping visibility to "private" makes
+    // the *existing, unchanged* firestore.rules read rule (isPhotoMineOrPublic — private is only
+    // ever readable by uid/uploadedBy) do the real enforcement, and the public/connections
+    // collection queries stop matching it server-side too — no rules change needed.
+    const visibilityBeforeTrash = post.visibility || "private";
     await updateDoc(doc(db, "photos", post.id), {
+      visibilityBeforeTrash,
+      visibility: "private",
       deletedAt: serverTimestamp(),
       deletedBy: user.uid,
       updatedAt: serverTimestamp(),
     });
-    // Success: remove immediately from the visible feed (and the Atlas cache is naturally
-    // stale-free too — atlas.js always re-queries Firestore from scratch on load/visibility,
-    // it never keeps a photos cache this page could have to invalidate).
+    // Keep the in-memory copy consistent so a same-session Undo (below) restores the exact
+    // prior visibility without needing a re-fetch first.
+    post.visibilityBeforeTrash = visibilityBeforeTrash;
+    post.visibility = "private";
+    post.deletedBy = user.uid;
+    // Remove immediately from the visible feed (and the Atlas cache is naturally stale-free
+    // too — atlas.js always re-queries Firestore from scratch on load/visibility, it never
+    // keeps a photos cache this page could have to invalidate).
     cachedPosts = cachedPosts.filter((p) => p.id !== post.id);
     renderFeed();
     pendingTrashPost = null;
@@ -823,11 +854,18 @@ async function restorePost(post) {
   if (inFlightMemoryOps.has(post.id)) return;
   inFlightMemoryOps.add(post.id);
   try {
+    // Restore the exact prior visibility (never assume "public" — an untrashed private/
+    // connections item must come back exactly as it was, not more visible than before).
+    const restoredVisibility = post.visibilityBeforeTrash || "private";
     await updateDoc(doc(db, "photos", post.id), {
+      visibility: restoredVisibility,
+      visibilityBeforeTrash: null,
       deletedAt: null,
       deletedBy: null,
       updatedAt: serverTimestamp(),
     });
+    post.visibility = restoredVisibility;
+    post.visibilityBeforeTrash = null;
     if (trashMode) {
       cachedTrashedPosts = cachedTrashedPosts.filter((p) => p.id !== post.id);
       renderTrash();

@@ -1,15 +1,13 @@
 // Minimal network-first service worker for offline shell caching.
 // Deliberately bypasses Firebase/CDN/weather hosts so it never interferes with
 // the auth flow, live Firestore/Storage reads, or third-party API calls.
-// v20 (Memory Trash + location-edit fix): gallery.js/gallery.html/atlas.js/js/location-fields.js
-// were edited and a new js/memory-filters.js module was added (see CLAUDE.md's Trash/location
-// history notes) — the cache is bumped so an offline-fallback visit can never serve a
-// pre-Trash gallery.html next to a post-Trash gallery.js (or vice versa), the same
-// "incompatible cached versions" failure mode prior version bumps guarded against. Online
-// behaviour is unchanged (network-first — the fetch handler always tries the network first and
-// only falls back to cache when that fails, so this bump only matters for the offline path).
-// Earlier: v19 (canonical location pipeline fix).
-const CACHE = "eden-shell-v20";
+// v21 (Trash privacy fix): gallery.js was edited again (visibility-preserving Trash — see
+// CLAUDE.md's "Trash privacy + ownership-merge fix" note) — cache bumped so an offline-fallback
+// visit can never serve a pre-fix gallery.js. No new PRECACHE entries this pass (no rules files
+// are cached — service workers never cache firestore.rules/storage.rules, those are deployed
+// server-side only). Online behaviour unchanged (network-first).
+// Earlier: v20 (Memory Trash + location-edit fix), v19 (canonical location pipeline fix).
+const CACHE = "eden-shell-v21";
 
 const PRECACHE = [
   "index.html", "resume.html", "gallery.html", "journal.html", "expenses.html",

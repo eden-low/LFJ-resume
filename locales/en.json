@@ -289,6 +289,7 @@
     "trash_confirm_body": "It will disappear from Memories and Atlas right away. You can restore it later from Trash.",
     "trash_loading": "Moving…",
     "trash_success": "Moved to Trash",
+    "restores_to": "Restores to: {visibility}",
     "restore": "Restore",
     "restore_success": "Restored",
     "restore_error": "Couldn't restore. Try again.",

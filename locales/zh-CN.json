@@ -289,6 +289,7 @@
     "trash_confirm_body": "它会立即从回忆和地图集中消失。你可以稍后在回收站中恢复它。",
     "trash_loading": "正在移动…",
     "trash_success": "已移到回收站",
+    "restores_to": "恢复为：{visibility}",
     "restore": "恢复",
     "restore_success": "已恢复",
     "restore_error": "恢复失败，请重试。",

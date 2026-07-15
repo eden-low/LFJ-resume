@@ -1101,6 +1101,81 @@ correctly gates Trash/Restore/Permanent-Delete per-document; `storage.rules`' `g
     pass, since no backend function infrastructure exists in this project today. Nothing was
     committed, pushed, or written to production by this pass.
 
+**Trash privacy + ownership-merge fix (most recent)** — a pre-deployment security review found
+that the Trash pass above only filtered trashed Memories client-side (`excludeDeleted()`); it
+never touched `firestore.rules`' read rule or the `visibility` field, so a formerly-public Memory
+that got trashed **was still directly readable by any signed-in non-owner** (`getDoc` by ID) and
+**still matched the public collection query** (`where("visibility","==","public")`) — proven with
+a rules-logic simulation (see Tests below) before being fixed, not assumed. `photos` has always
+required `request.auth != null` for every read branch (confirmed by re-reading
+`isPhotoMineOrPublic()`), so a *signed-out* caller was never able to read a photo at all, trashed
+or not — that boundary was already correct and is unaffected; the real gap was any other
+signed-in user (Viewer, Friend, or an accepted connections-tier friend).
+1. **Fix — preserve-and-privatize, not a rules change.** `submitMoveToTrash()` now also writes
+   `visibilityBeforeTrash: <the doc's current visibility>` and `visibility: "private"` alongside
+   `deletedAt`/`deletedBy`; `restorePost()` writes `visibility: <visibilityBeforeTrash>` (falling
+   back to `"private"` if somehow missing — never assume public) and nulls `visibilityBeforeTrash`
+   back out. Because `firestore.rules`' `photos` read rule already treats `visibility: "private"`
+   as owner/`uploadedBy`-only (unchanged, no rules edit needed), this alone closes both read paths:
+   a direct `getDoc` on a trashed doc now fails the rule for a non-owner, and the public/
+   connections collection queries no longer match it server-side either, since the `visibility`
+   field itself changed. This was the brief's own suggested "preserve exact previous visibility,
+   set private" architecture, adopted as-is since it matched the real schema (`visibility`:
+   `public`/`private`/`connections` on `photos`, no separate field to invent). `trashCard()` shows
+   a small badge (`memories.restores_to`) reading the *original* tier so the Trash view stays
+   honest about what Restore brings back.
+2. **Storage exposure — audited, not silently assumed safe.** A `getDownloadURL()` token
+   (`?alt=media&token=...`) is a bearer credential that bypasses Storage Security Rules for that
+   specific request shape — this is standard Firebase Storage behavior, not a bug introduced
+   here. **Trashing a Memory does NOT revoke its existing download URL/token** — anyone who
+   already has that URL (e.g. a Viewer whose browser rendered the `<img>` before it was trashed,
+   or anyone who copied it) can keep using it for as long as the underlying Storage object
+   exists. Only **Permanent Delete** actually removes exposure, because it calls `deleteObject()`
+   on the object itself (unchanged from the prior pass — already correct), at which point the URL
+   404s for everyone, including anyone still holding it. Documented as a real, load-bearing
+   limitation rather than claimed away — a token-rotation/backend proxy would be the only way to
+   revoke access while an item merely sits in Trash, and none exists in this project.
+3. **Ownership-merge dedup (Gap 2)** — `gallery.js` gained one shared `fetchOwnPosts(uid)` helper
+   (uid query + legacy `uploadedBy` query, merged into a `Map` keyed by document ID) that both
+   `fetchVisiblePosts()`'s "mine" half and `fetchTrashedPosts()` now call, replacing two
+   near-duplicate inline merges — Trash already covered both ownership fields before this pass
+   (verified by re-reading the code, not assumed), this was a DRY fix, not a coverage fix: a doc
+   carrying both `uid` and `uploadedBy` is still only counted/rendered once.
+4. **Edit-location lifecycle (Gap 3) — re-verified, not re-built.** All 6 required scenarios (add
+   to a legacy no-location Memory; a name-only legacy value correctly shows "needs confirmation"
+   and is never treated as confirmed; changing an already-mapped Memory's place; an unrelated
+   caption/tag/visibility edit preserving coordinates exactly; Remove Location saving the
+   canonical null state; Cancel discarding all temporary changes) were already correctly
+   implemented by the prior pass and are now backed by a deterministic test that exercises the
+   real `readLocationFields()`/`classifyLocation()`/`normalizeLocation()` functions against a
+   minimal fake-DOM stub reproducing `openEditModal`'s exact prefill sequence (see Tests below) —
+   not just re-asserted in prose. `confirmPlace()` is confirmed to only ever receive a name when
+   `normalizeLocation()` (which already discards invalid/missing coordinates) reports a genuinely
+   valid, `place_resolved`-precision pair; a name-only or invalid legacy value always passes
+   `null`. One deliberate non-fix: `wirePlaceSearch`'s rename-guard still only invalidates
+   coordinates on a text edit when they came from a search result (`hint === "place_resolved"`),
+   not from the GPS button — kept as-is on purpose, since GPS coordinates describe wherever the
+   device physically was, independent of whatever label ends up next to them (relabeling a GPS
+   pin isn't "changing to a different place" the way editing a search-result's name is); changing
+   this would have reintroduced a worse bug (typing a first-time label right after a GPS capture
+   would wipe the just-captured pin).
+5. **Tests** — since the sandboxed environment has no Java runtime, the real Firestore emulator
+   could not run (`npx firebase-tools emulators:exec --only firestore ...` failed with "Could not
+   spawn `java -version`", confirmed by attempting it, not assumed unavailable). In its place: (a)
+   a rules-logic simulation — `isPhotoMineOrPublic()`/the `photos` update/delete rule translated
+   line-for-line into plain JS and checked against `firestore.rules`' literal text, 23 assertions
+   covering signed-out/owner/viewer/friend × active-public/active-private/active-connections/
+   trashed/restored, including one assertion that reproduces the OLD (pre-fix) scheme specifically
+   to prove the gap was real before the fix; (b) a full `@firebase/rules-unit-testing` emulator
+   test file, written for future use but explicitly **not executed**; (c) a DOM-stub test exercising
+   the real `readLocationFields()` against a fake `document.getElementById`, covering all 6
+   edit-location scenarios end-to-end; (d) the ownership-merge dedup logic. All are scratch files,
+   not committed to the repo (matches this project's no-test-framework convention). No rules or
+   Storage rules were changed, so no rules deploy is required or was performed.
+6. **Brand & navigation**: none. `service-worker.js` `CACHE` → `eden-shell-v21` (`gallery.js`
+   changed again; no new `PRECACHE` entries). Nothing committed, pushed, deployed, or written to
+   production.
+
 ## Architecture
 
 ### Roles and the multi-tenant data model
