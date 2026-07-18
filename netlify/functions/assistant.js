@@ -28,6 +28,7 @@
 
 const { runAgentLoop, QwenError } = require("./lib/qwen");
 const { checkBurst, checkAndIncrementDailyUsage } = require("./lib/rate-limit");
+const { FirebaseConfigError } = require("./lib/firebase-admin");
 
 // Duplicated from firebase-init.js's OWNER_EMAIL on purpose (see that file's own comment) — this
 // Function has no way to import a browser ES module, and re-deriving "who is the Owner" from
@@ -151,6 +152,18 @@ function systemPrompt(scopes) {
   ].join(" ");
 }
 
+// The ONLY place this file logs anything about an auth/config failure. Reveals exactly two
+// things: which of the four stages failed (json_parse | credential_validation |
+// admin_initialization | token_verification) and a short, safe error code — never the raw JSON,
+// client_email, private_key, token, Authorization header, or any other environment value. A
+// FirebaseConfigError already carries a safe `.code` (see lib/firebase-admin.js); a real
+// Firebase Auth error's `.code` (e.g. "auth/id-token-expired") is equally safe to log — it's a
+// fixed SDK enum, never derived from the token's own contents.
+function logAuthStageFailure(stage, err) {
+  const code = (err && err.code) || "no_code";
+  console.error(`[assistant] auth stage failed: stage=${stage} code=${code}`);
+}
+
 function sanitizeUsage(usage) {
   if (!usage || typeof usage !== "object") return null;
   const out = {};
@@ -177,6 +190,23 @@ function createHandler(deps) {
       return jsonResponse(500, { ok: false, error: "assistant_not_configured" });
     }
 
+    // 2. Firebase Admin initialization boundary — deliberately its own step, run for every
+    // caller before origin/method/auth, and deliberately NOT inside the token-verification try/
+    // catch below. This is the fix for a real production incident: parsing/validating
+    // FIREBASE_SERVICE_ACCOUNT and calling admin.initializeApp() used to happen lazily inside
+    // verifyIdToken(), so any failure there (malformed JSON, a missing field, a mis-escaped
+    // private key, admin.initializeApp() itself throwing) got caught by the same catch block as
+    // an actual invalid token and reported as 401 invalid_or_expired_token — which is why
+    // production logs showed "token verification failed: undefined" (a config error has no
+    // auth/... code) for what was actually a credential problem, not a bad token. See
+    // netlify/functions/lib/firebase-admin.js for the parsing/normalization logic itself.
+    try {
+      await deps.ensureFirebaseAdmin();
+    } catch (err) {
+      logAuthStageFailure(err instanceof FirebaseConfigError ? err.stage : "admin_initialization", err);
+      return jsonResponse(500, { ok: false, error: "assistant_not_configured" });
+    }
+
     const allowedOrigins = resolveAllowedOrigins(env);
     const origin = getHeader(event, "origin");
     const originOk = !!origin && allowedOrigins.has(origin);
@@ -196,7 +226,13 @@ function createHandler(deps) {
     }
     const baseHeaders = corsHeaders(origin);
 
-    // 2. Authenticate — derive uid from a server-verified Firebase ID token only.
+    // 3. Authenticate — derive uid from a server-verified Firebase ID token only. By this point
+    // Firebase Admin is already known-initialized (step 2 above already returned 500 otherwise),
+    // so the only way deps.verifyIdToken() can now fail is a genuine token problem (missing,
+    // expired, revoked, malformed, wrong audience/issuer) — that is the ONLY case that may ever
+    // produce a 401 here. The FirebaseConfigError branch below is defense-in-depth only (it
+    // should be unreachable given step 2 already succeeded) — if it somehow still fires, it must
+    // still be reported as a config failure (500), never mis-classified as a bad token (401).
     const authHeader = getHeader(event, "authorization") || "";
     const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
     if (!match) {
@@ -206,15 +242,20 @@ function createHandler(deps) {
     try {
       decoded = await deps.verifyIdToken(match[1]);
     } catch (err) {
-      console.error("[assistant] token verification failed:", err && err.code);
+      if (err instanceof FirebaseConfigError) {
+        logAuthStageFailure(err.stage, err);
+        return jsonResponse(500, { ok: false, error: "assistant_not_configured" }, baseHeaders);
+      }
+      logAuthStageFailure("token_verification", err);
       return jsonResponse(401, { ok: false, error: "invalid_or_expired_token" }, baseHeaders);
     }
     if (!decoded || !decoded.uid) {
+      logAuthStageFailure("token_verification", null);
       return jsonResponse(401, { ok: false, error: "invalid_or_expired_token" }, baseHeaders);
     }
     const uid = decoded.uid;
 
-    // 3. Authorize — Owner only. Two independent signals that must BOTH agree, not an "either
+    // 4. Authorize — Owner only. Two independent signals that must BOTH agree, not an "either
     // will do" OR: the server-verified token's own email (decoded.email — cryptographically
     // attested by Firebase Admin, not client-suppliable) AND the users/{uid} directory doc's
     // `role`/`email` fields. Using OR here would have been a real gap — a bug that wrongly wrote
@@ -232,14 +273,14 @@ function createHandler(deps) {
       return jsonResponse(403, { ok: false, error: "owner_only" }, baseHeaders);
     }
 
-    // 4. Validate the request body.
+    // 5. Validate the request body.
     const validated = validateRequestBody(event.body);
     if (validated.error) {
       return jsonResponse(400, { ok: false, error: validated.error }, baseHeaders);
     }
     const { message, history, scopes } = validated.value;
 
-    // 5. Rate/cost protection. Burst guard first (cheap, no Firestore round trip); the durable
+    // 6. Rate/cost protection. Burst guard first (cheap, no Firestore round trip); the durable
     // daily cap is the real limiter — see lib/rate-limit.js's header comment.
     const now = deps.now ? deps.now() : new Date();
     const burst = checkBurst(uid, now.getTime());
@@ -268,7 +309,7 @@ function createHandler(deps) {
       return jsonResponse(429, { ok: false, error: "rate_limited", scope: "daily", limit: daily.limit }, baseHeaders);
     }
 
-    // 6. Run the bounded, read-only tool-calling agent loop against Qwen.
+    // 7. Run the bounded, read-only tool-calling agent loop against Qwen.
     try {
       const result = await runAgentLoop({
         qwenConfig: { baseUrl: env.QWEN_BASE_URL, apiKey: env.DASHSCOPE_API_KEY, model: env.QWEN_MODEL },
@@ -307,25 +348,32 @@ function createHandler(deps) {
 
 function buildProductionDeps() {
   const admin = require("firebase-admin");
-  let app = null;
+  const { initializeFirebaseAdmin } = require("./lib/firebase-admin");
+  let app = null; // memoized ONLY on success — see getApp()'s comment
 
+  // Once per warm Function instance: the first successful call caches `app` and every later
+  // call (this request or a later one on the same warm instance) returns it instantly with no
+  // re-parsing/re-validation. A FAILED attempt is deliberately not cached — a later request on
+  // the same warm instance is allowed to retry (e.g. if a Netlify env var change takes effect
+  // without a full cold start), and each retry still goes through the exact same classified
+  // parseServiceAccount()/admin.initializeApp() path, never a weaker fallback.
   function getApp() {
     if (app) return app;
-    const projectId = process.env.FIREBASE_PROJECT_ID;
-    const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-    let serviceAccount;
-    try {
-      serviceAccount = JSON.parse(raw);
-    } catch {
-      throw new Error("FIREBASE_SERVICE_ACCOUNT is not valid JSON");
-    }
-    app = admin.apps.length ? admin.app() : admin.initializeApp({ credential: admin.credential.cert(serviceAccount), projectId });
+    app = initializeFirebaseAdmin({
+      admin,
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      serviceAccountRaw: process.env.FIREBASE_SERVICE_ACCOUNT,
+    });
     return app;
   }
 
   return {
     env: process.env,
     now: () => new Date(),
+    // The dedicated initialization boundary (see assistant.js's handler, step 2, and
+    // lib/firebase-admin.js) — throws a classified FirebaseConfigError on failure, never
+    // reaches or is reachable from verifyIdToken().
+    ensureFirebaseAdmin: async () => { getApp(); },
     verifyIdToken: (token) => admin.auth(getApp()).verifyIdToken(token, true),
     getUserDoc: async (uid) => {
       const snap = await admin.firestore(getApp()).collection("users").doc(uid).get();

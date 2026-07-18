@@ -228,6 +228,27 @@ function stopThinkingAnimation() {
 }
 
 // ---- Networking ----
+
+// A 401 from /.netlify/functions/assistant almost always means the cached ID token `user.
+// getIdToken()` returned was stale/near-expiry at the moment it was read, not that the session
+// is genuinely invalid — Firebase's own token cache can lag behind a very recent sign-in or a
+// clock-skew edge case. Exactly ONE retry, with a forced refresh (`getIdToken(true)`, which
+// always fetches a brand-new token from Firebase rather than trusting the local cache): if the
+// retry ALSO comes back 401, the session really is invalid and that is surfaced as a normal
+// error by the caller — never a second retry, never a loop. `attempt(forceRefresh)` is injected
+// so this policy is a small, pure function with no DOM/Firebase dependency of its own; the
+// caller supplies the actual fetch+token logic. This exact function is duplicated (per this
+// repo's own established per-file convention — see e.g. gallery.js's/assistant.js's
+// trapFocus()) into the test suite to verify the retry-exactly-once behavior without needing a
+// browser/DOM/Firebase environment — keep both copies in sync if this changes.
+async function withOneRetryOn401(attempt) {
+  let res = await attempt(false);
+  if (res.status === 401) {
+    res = await attempt(true);
+  }
+  return res;
+}
+
 function friendlyError(code) {
   const map = {
     assistant_not_configured: "assistant.error_not_configured",
@@ -267,13 +288,14 @@ async function sendMessage(text) {
   try {
     const user = auth.currentUser;
     if (!user) throw new Error("not_signed_in");
-    const idToken = await user.getIdToken();
-    const res = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ message: text, history: historyForServer, scopes }),
-      signal: currentController.signal,
-    });
+    const res = await withOneRetryOn401(async (forceRefresh) =>
+      fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken(forceRefresh)}` },
+        body: JSON.stringify({ message: text, history: historyForServer, scopes }),
+        signal: currentController.signal,
+      })
+    );
     const data = await res.json().catch(() => ({}));
     stopThinkingAnimation();
     if (!res.ok || !data.ok) {

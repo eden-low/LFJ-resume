@@ -17,10 +17,20 @@
 // Alibaba Model Studio endpoint itself is never fetched by the browser at all (only server-side,
 // from netlify/functions/assistant.js) — nothing here can ever intercept that call — this SW's
 // existing cross-origin bypass (line below) already covers it if that ever changes.
-// Earlier: v22 ("Portfolio to root" routing change — index.html is now the public recruiter
-// Portfolio, home.html is the private app landing page), v21 (Trash privacy fix), v20 (Memory
-// Trash + location-edit fix), v19 (canonical location pipeline fix).
-const CACHE = "eden-shell-v23";
+// v24 (Atlas Assistant production auth fix): assistant.js's frontend changed (the
+// withOneRetryOn401 token-refresh-and-retry policy) and is precached below, so the cache is
+// bumped again to guarantee that change is actually fetched rather than served from an
+// already-active v23 worker's stale copy. netlify/functions/assistant.js and its lib/ modules
+// also changed, but Function source was never part of PRECACHE to begin with (it isn't a static
+// asset the browser fetches — see scripts/build-site.js's publish allowlist, which structurally
+// excludes netlify/ from the deployed site entirely) — the bump here is solely for the one
+// changed client asset.
+// Earlier: v23 (Qwen Atlas Assistant MVP — assistant.html/assistant.js added to PRECACHE, and
+// /.netlify/functions/* excluded from Cache Storage writes), v22 ("Portfolio to root" routing
+// change — index.html is now the public recruiter Portfolio, home.html is the private app
+// landing page), v21 (Trash privacy fix), v20 (Memory Trash + location-edit fix), v19 (canonical
+// location pipeline fix).
+const CACHE = "eden-shell-v24";
 
 const PRECACHE = [
   "index.html", "home.html", "resume.html", "gallery.html", "journal.html", "expenses.html",

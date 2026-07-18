@@ -1511,6 +1511,92 @@ entirely different architecture (server-verified, tool-allowlisted, no client-tr
     versioned feature pass in the sense every prior `vX.Y` entry in this history used that term
     for) — a version-bump decision left for the user alongside the manual deploy steps.
 
+**"Atlas Assistant production auth fix" (most recent)** — after deploying the MVP above, real
+production traffic hit `401 invalid_or_expired_token` on every request, with Netlify Function
+logs repeatedly showing `[assistant] token verification failed: undefined`, even after
+`FIREBASE_SERVICE_ACCOUNT` was replaced with the complete original downloaded JSON and
+`FIREBASE_PROJECT_ID` was confirmed to match. Root cause: `buildProductionDeps()`'s
+`verifyIdToken` called a lazy `getApp()` *internally*, and the handler wrapped that whole call in
+one try/catch that mapped **any** thrown error — malformed JSON, a missing service-account
+field, a broken private key, `admin.initializeApp()` itself throwing — to `401
+invalid_or_expired_token`. `err.code` being `undefined` was the tell: a real Firebase Auth error
+always carries an `auth/...` code; a credential/config error typically doesn't. Confirmed against
+the *actual installed* `firebase-admin` package (not assumed) that `admin.credential.cert()`/
+`admin.initializeApp()` do **not** eagerly validate the private key at all — a garbage string
+sails through both calls without throwing, and only fails later, deep inside
+`verifyIdToken(token, true)`'s revocation-check network call (which needs the key to sign a JWT
+for an OAuth access token) — exactly where the old code's catch block was listening, and exactly
+why it looked like "the token" was the problem.
+1. **[netlify/functions/lib/firebase-admin.js](netlify/functions/lib/firebase-admin.js)** (new)
+   — a dedicated initialization boundary, entirely separate from `verifyIdToken()`.
+   `parseServiceAccount(raw, expectedProjectId)` trims surrounding whitespace, requires the JSON
+   to parse into an object, validates only the presence/type of `project_id`/`client_email`/
+   `private_key`, confirms `project_id` matches `FIREBASE_PROJECT_ID`, and normalizes a
+   double-escaped private key (`private_key.replace(/\\n/g, "\n")` — safe/idempotent on an
+   already-healthy key). `initializeFirebaseAdmin()` then does what the real SDK won't: calls
+   Node's own `crypto.createPrivateKey()` on the normalized key — a real, local, synchronous PEM
+   parse with no network call — **before** ever calling `admin.credential.cert()`/
+   `initializeApp()`, catching a present-but-garbage key (a mis-escaped or truncated PEM, the
+   actual production failure mode) at the correct boundary instead of inside a later, unrelated
+   SDK call. Every failure throws a classified `FirebaseConfigError` with a `stage` (`json_parse`
+   | `credential_validation` | `admin_initialization`) and a short, safe `code` (e.g.
+   `config/invalid-json`, `config/missing-field`, `config/project-mismatch`,
+   `config/invalid-private-key`, `config/init-failed`) — never the raw JSON, key, or SDK error
+   text, which can include OpenSSL diagnostic fragments.
+2. **`netlify/functions/assistant.js`** — gained a new step 2, `await deps.ensureFirebaseAdmin()`,
+   run for every caller right after the env-presence check and before origin/method/auth (mirrors
+   the existing "fail closed uniformly, regardless of caller" philosophy that check already used).
+   A `FirebaseConfigError` here returns `500 assistant_not_configured` and never calls
+   `verifyIdToken`/Qwen at all (asserted via spies in tests). `deps.verifyIdToken()`'s catch block
+   now branches: a `FirebaseConfigError` (defense-in-depth only — should be unreachable once step
+   2 already succeeded) is still `500`, and **only** a genuine token-verification failure is
+   `401`. `buildProductionDeps()`'s `getApp()` now calls `initializeFirebaseAdmin()` and memoizes
+   only a *successful* app (a failed attempt is not cached, so a later request on the same warm
+   instance can retry — e.g. after a Netlify env var change that didn't trigger a cold start — but
+   always through the same classified path, never a weaker fallback). A new
+   `logAuthStageFailure(stage, err)` is the only place this file logs an auth/config failure:
+   `stage=<one of the four> code=<err.code or "no_code">` — never the JSON, `client_email`,
+   `private_key`, token, or `Authorization` header. Owner authorization (`403 owner_only`) and
+   Qwen upstream-error handling are unchanged.
+3. **`assistant.js` (frontend)** — a `401` from `/.netlify/functions/assistant` no longer ends the
+   turn immediately: `withOneRetryOn401(attempt)` retries **exactly once**, with a forced token
+   refresh (`user.getIdToken(true)`, which always fetches a fresh token from Firebase rather than
+   trusting a possibly-stale local cache) — a second `401` after the forced refresh is treated as
+   a genuine session problem and surfaced as the normal error path, never a second retry, never a
+   loop. Tokens are never stored or logged, matching the existing pattern.
+4. **`service-worker.js` → `eden-shell-v24`** (from v23) — bumped because `assistant.js`'s
+   frontend changed and is precached; `netlify/functions/assistant.js`/`lib/firebase-admin.js`
+   changing needed no bump of their own, since Function source was never part of `PRECACHE` to
+   begin with (`scripts/build-site.js`'s publish allowlist structurally excludes all of
+   `netlify/` from the deployed site — a browser never fetches it as a static asset).
+5. **Tests** — [netlify/functions/\_\_tests\_\_/assistant.test.js](netlify/functions/__tests__/assistant.test.js)
+   grew from 53 to 76 assertions, all still mocked/offline. New coverage: `parseServiceAccount`
+   (valid input, whitespace trimming, double-escape normalization built via `JSON.stringify` so
+   the test itself can't have an off-by-one escaping bug, malformed JSON, missing field, project
+   mismatch); `initializeFirebaseAdmin` (a **present-but-garbage private key rejected by the new
+   local `crypto` check before `admin.credential.cert()` is ever reached** — the actual root-cause
+   scenario, proven via a spy that asserts `cert()` was never called — plus `cert()`/
+   `initializeApp()` themselves throwing, and warm-instance reuse); handler-level classification
+   for all three config-failure stages (500, never 401, `verifyIdToken`/Qwen never called — spied);
+   a genuine token failure still 401; Owner authorization still 403; safe stage logging (asserts
+   the log line contains `stage=`/`code=` and never the fake key, owner email, PEM markers, or raw
+   JSON — and that a `.code`-less error logs `code=no_code`, not the literal string `"undefined"`
+   the original bug produced); and `withOneRetryOn401` duplicated verbatim into the test file
+   (documented as intentionally mirroring `assistant.js`, per this repo's established
+   per-file-duplication convention) and unit-tested in isolation — no DOM/browser/Firebase
+   environment needed — for exactly-one-retry, forced-refresh-on-retry, no-retry-on-non-401, and
+   never-a-third-attempt-even-if-the-retry-also-fails. Also smoke-tested the real, installed
+   `firebase-admin` package directly (not just the test's fake `admin` mock) to confirm
+   `credential.cert()` genuinely doesn't validate eagerly — the finding that justified adding the
+   `crypto.createPrivateKey()` check in the first place, not an assumption.
+6. **Not part of this pass**: no `firestore.rules`/`storage.rules` change, no weaker auth
+   fallback, no diagnostic/debug endpoint, no deploy, nothing committed or pushed. The residual
+   (documented, not fixed) limitation: a private key that is *syntactically* valid PEM but simply
+   *wrong* (revoked, mismatched, or belonging to a different project's service account) would
+   still only fail inside `verifyIdToken()`'s network call and would still surface as 401 — this
+   pass closes the common "mangled newlines" failure mode, not every conceivable credential
+   problem, and that gap is called out rather than silently left implicit.
+
 ## Architecture
 
 ### Roles and the multi-tenant data model

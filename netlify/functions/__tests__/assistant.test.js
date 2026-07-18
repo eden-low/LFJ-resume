@@ -11,11 +11,13 @@ const assert = require("node:assert");
 const path = require("node:path");
 const vm = require("node:vm");
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 
 const { createHandler } = require("../assistant.js");
 const { TOOLS, toolDefsForScopes, ToolValidationError } = require("../lib/tools.js");
 const { runAgentLoop, callQwenChatCompletions, QwenError } = require("../lib/qwen.js");
 const { checkBurst, checkAndIncrementDailyUsage, _resetBurstStateForTests } = require("../lib/rate-limit.js");
+const { FirebaseConfigError, parseServiceAccount, initializeFirebaseAdmin } = require("../lib/firebase-admin.js");
 
 let pass = 0;
 let fail = 0;
@@ -135,10 +137,17 @@ function baseDeps(overrides = {}) {
   return {
     env: baseEnv(),
     now: () => new Date("2026-07-18T12:00:00.000Z"),
+    // Real production wiring calls getApp() here (see lib/firebase-admin.js); the mock default
+    // simulates a healthy, already-initialized Admin app — tests that want to exercise a
+    // json_parse/credential_validation/admin_initialization failure override this directly with
+    // something that throws a FirebaseConfigError, exactly like initializeFirebaseAdmin() would.
+    ensureFirebaseAdmin: async () => {},
     verifyIdToken: async (token) => {
       if (token === "owner-token") return { uid: OWNER_UID, email: OWNER_EMAIL };
       if (token === "friend-token") return { uid: FRIEND_UID, email: "friend@example.com" };
-      throw new Error("invalid token");
+      const e = new Error("invalid token");
+      e.code = "auth/argument-error";
+      throw e;
     },
     getUserDoc: async (uid) => SEED.users[uid] || null,
     getDb: () => db,
@@ -271,6 +280,290 @@ async function run() {
       assert.strictEqual(verifyCalled, false, "auth must not be attempted when config is missing");
     });
   }
+
+  console.log("\nFirebase Admin initialization boundary (lib/firebase-admin.js)");
+
+  // A REAL RSA private key, generated locally for this test run only (never a real credential,
+  // never written anywhere, discarded when the process exits) — necessary because this suite
+  // now validates PEM structure with Node's own `crypto.createPrivateKey()` (see
+  // lib/firebase-admin.js's assertPrivateKeyIsUsable(), added after confirming against the real
+  // firebase-admin package that admin.credential.cert() does NOT eagerly validate a key, so a
+  // placeholder string would no longer be a valid fixture for the "this should succeed" tests).
+  const REAL_TEST_PRIVATE_KEY = crypto
+    .generateKeyPairSync("rsa", { modulusLength: 2048 })
+    .privateKey.export({ type: "pkcs8", format: "pem" });
+
+  const VALID_SA = {
+    project_id: "lfj-profolio",
+    client_email: "sa@lfj-profolio.iam.gserviceaccount.com",
+    private_key: REAL_TEST_PRIVATE_KEY,
+  };
+
+  function makeFakeAdmin({ failCert = false, failInit = false } = {}) {
+    const apps = [];
+    return {
+      apps,
+      app: () => apps[0],
+      credential: {
+        cert: (sa) => {
+          if (failCert) throw new Error("fake OpenSSL error: error:0909006C:PEM routines");
+          return { __cert: true, sa };
+        },
+      },
+      initializeApp: (opts) => {
+        if (failInit) throw new Error("fake initializeApp failure");
+        const app = { __app: true, opts };
+        apps.push(app);
+        return app;
+      },
+    };
+  }
+
+  await test("parseServiceAccount: a valid service-account object parses and initializes successfully", async () => {
+    const admin = makeFakeAdmin();
+    const app = initializeFirebaseAdmin({ admin, projectId: "lfj-profolio", serviceAccountRaw: JSON.stringify(VALID_SA) });
+    assert.ok(app.__app);
+    assert.strictEqual(admin.apps.length, 1);
+  });
+
+  await test("parseServiceAccount: surrounding whitespace around the raw env var is trimmed", async () => {
+    const raw = `\n  \t${JSON.stringify(VALID_SA)}\t  \n`;
+    const parsed = parseServiceAccount(raw, "lfj-profolio");
+    assert.strictEqual(parsed.project_id, "lfj-profolio");
+  });
+
+  await test("parseServiceAccount: a healthy, already-correctly-escaped private key is left unchanged", async () => {
+    const parsed = parseServiceAccount(JSON.stringify(VALID_SA), "lfj-profolio");
+    assert.strictEqual(parsed.private_key, VALID_SA.private_key);
+  });
+
+  await test("parseServiceAccount: a double-escaped private key (literal backslash-n text) is normalized to real newlines", async () => {
+    // Simulates the real production failure mode: somewhere between the Firebase Console
+    // download and the Netlify env var, each real `\n` JSON escape (2 chars) in the JSON TEXT
+    // became `\\n` (3 chars) — so after one JSON.parse, the resulting string contains literal
+    // backslash+n text instead of an actual newline byte. Built via JSON.stringify (not by
+    // hand-counting backslashes in a string literal) so the test itself can't have an off-by-one
+    // escaping bug.
+    // Derived from the real test key by turning every real newline byte into literal "\n" text —
+    // the exact inverse of what assertPrivateKeyIsUsable/normalizeLocation's replace() fixes.
+    const doubleEscapedPrivateKey = VALID_SA.private_key.replace(/\n/g, "\\n");
+    const rawJsonText = JSON.stringify({ ...VALID_SA, private_key: doubleEscapedPrivateKey });
+    const parsed = parseServiceAccount(rawJsonText, "lfj-profolio");
+    assert.strictEqual(parsed.private_key, VALID_SA.private_key, "should normalize back to real newlines");
+    assert.ok(!parsed.private_key.includes("\\n"), "must contain no literal backslash-n text after normalization");
+  });
+
+  await test("parseServiceAccount: malformed JSON throws FirebaseConfigError(stage=json_parse)", async () => {
+    assert.throws(
+      () => parseServiceAccount("{not valid json", "lfj-profolio"),
+      (err) => err instanceof FirebaseConfigError && err.stage === "json_parse" && err.code === "config/invalid-json"
+    );
+  });
+
+  await test("parseServiceAccount: a missing required field throws FirebaseConfigError(stage=credential_validation)", async () => {
+    const { private_key, ...missingKey } = VALID_SA;
+    assert.throws(
+      () => parseServiceAccount(JSON.stringify(missingKey), "lfj-profolio"),
+      (err) => err instanceof FirebaseConfigError && err.stage === "credential_validation" && err.code === "config/missing-field"
+    );
+  });
+
+  await test("parseServiceAccount: a project_id mismatch throws FirebaseConfigError(stage=credential_validation)", async () => {
+    assert.throws(
+      () => parseServiceAccount(JSON.stringify(VALID_SA), "some-other-project"),
+      (err) => err instanceof FirebaseConfigError && err.stage === "credential_validation" && err.code === "config/project-mismatch"
+    );
+  });
+
+  await test("initializeFirebaseAdmin: a present-but-garbage private_key is rejected by real, local PEM validation BEFORE admin.credential.cert() is ever called — the actual production root cause", async () => {
+    // This is the scenario the real firebase-admin package does NOT catch on its own (verified
+    // against the actual installed package, not assumed — see the header comment in
+    // lib/firebase-admin.js): project_id/client_email/private_key are all present and are all
+    // strings, so parseServiceAccount's shape checks pass, but the private_key text isn't a
+    // real, usable PEM key (exactly what a mis-escaped or truncated key looks like). Uses a
+    // "normal" fake admin (cert()/initializeApp() would happily accept anything) specifically to
+    // prove the rejection comes from OUR local crypto check, not from the SDK.
+    const admin = makeFakeAdmin();
+    let certCalled = false;
+    admin.credential.cert = (sa) => { certCalled = true; return { __cert: true, sa }; };
+    const garbageKeySA = { ...VALID_SA, private_key: "-----BEGIN PRIVATE KEY-----\nnot-real-key-material\n-----END PRIVATE KEY-----\n" };
+    assert.throws(
+      () => initializeFirebaseAdmin({ admin, projectId: "lfj-profolio", serviceAccountRaw: JSON.stringify(garbageKeySA) }),
+      (err) => err instanceof FirebaseConfigError && err.stage === "admin_initialization" && err.code === "config/invalid-private-key"
+    );
+    assert.strictEqual(certCalled, false, "must reject before ever reaching admin.credential.cert()");
+  });
+
+  await test("initializeFirebaseAdmin: a credential/private-key that fails admin.credential.cert() throws FirebaseConfigError(stage=admin_initialization), never leaking the raw SDK error", async () => {
+    const admin = makeFakeAdmin({ failCert: true });
+    assert.throws(
+      () => initializeFirebaseAdmin({ admin, projectId: "lfj-profolio", serviceAccountRaw: JSON.stringify(VALID_SA) }),
+      (err) => err instanceof FirebaseConfigError && err.stage === "admin_initialization" && err.code === "config/init-failed" && !err.message.includes("OpenSSL") && !err.message.includes("PEM")
+    );
+  });
+
+  await test("initializeFirebaseAdmin: admin.initializeApp() itself throwing is also classified as stage=admin_initialization", async () => {
+    const admin = makeFakeAdmin({ failInit: true });
+    assert.throws(
+      () => initializeFirebaseAdmin({ admin, projectId: "lfj-profolio", serviceAccountRaw: JSON.stringify(VALID_SA) }),
+      (err) => err instanceof FirebaseConfigError && err.stage === "admin_initialization"
+    );
+  });
+
+  await test("initializeFirebaseAdmin: reuses the existing app on a warm instance, never re-validates", async () => {
+    const admin = makeFakeAdmin();
+    const first = initializeFirebaseAdmin({ admin, projectId: "lfj-profolio", serviceAccountRaw: JSON.stringify(VALID_SA) });
+    // Second call passes garbage — if it were re-parsed/re-validated this would throw, but
+    // admin.apps.length is already 1, so initializeFirebaseAdmin must short-circuit to admin.app().
+    const second = initializeFirebaseAdmin({ admin, projectId: "lfj-profolio", serviceAccountRaw: "{not json at all" });
+    assert.strictEqual(first, second);
+  });
+
+  console.log("\nHandler-level classification: config/init failures are 500, never 401 — and never call Qwen");
+
+  const CONFIG_FAILURE_STAGES = [
+    ["json_parse", () => { throw new FirebaseConfigError("bad json", "json_parse", "config/invalid-json"); }],
+    ["credential_validation", () => { throw new FirebaseConfigError("missing field", "credential_validation", "config/missing-field"); }],
+    ["admin_initialization", () => { throw new FirebaseConfigError("init failed", "admin_initialization", "config/init-failed"); }],
+  ];
+
+  for (const [stageName, throwFn] of CONFIG_FAILURE_STAGES) {
+    await test(`ensureFirebaseAdmin failing at stage=${stageName} returns 500 assistant_not_configured, not 401, and never calls verifyIdToken or Qwen`, async () => {
+      _resetBurstStateForTests();
+      let verifyCalled = false;
+      let qwenCalled = false;
+      const deps = baseDeps({
+        ensureFirebaseAdmin: async () => throwFn(),
+        verifyIdToken: async () => { verifyCalled = true; return { uid: OWNER_UID, email: OWNER_EMAIL }; },
+        fetchImpl: async () => { qwenCalled = true; return { ok: true, status: 200, text: async () => "{}" }; },
+      });
+      const handler = createHandler(deps);
+      const res = await handler(makeEvent({ body: chatBody() }));
+      assert.strictEqual(res.statusCode, 500, res.body);
+      assert.strictEqual(JSON.parse(res.body).error, "assistant_not_configured");
+      assert.strictEqual(verifyCalled, false, "token verification must never run when Admin init failed");
+      assert.strictEqual(qwenCalled, false, "Qwen must never be called when Admin init failed");
+    });
+  }
+
+  await test("a genuine verifyIdToken rejection (Admin already initialized) is 401, not 500 — and never calls Qwen", async () => {
+    _resetBurstStateForTests();
+    let qwenCalled = false;
+    const deps = baseDeps({
+      ensureFirebaseAdmin: async () => {}, // init already succeeded
+      verifyIdToken: async () => { const e = new Error("Firebase ID token has expired"); e.code = "auth/id-token-expired"; throw e; },
+      fetchImpl: async () => { qwenCalled = true; return { ok: true, status: 200, text: async () => "{}" }; },
+    });
+    const handler = createHandler(deps);
+    const res = await handler(makeEvent({ body: chatBody() }));
+    assert.strictEqual(res.statusCode, 401);
+    assert.strictEqual(JSON.parse(res.body).error, "invalid_or_expired_token");
+    assert.strictEqual(qwenCalled, false);
+  });
+
+  await test("if verifyIdToken somehow still throws a FirebaseConfigError directly, it's classified as 500, not 401 (defense in depth)", async () => {
+    _resetBurstStateForTests();
+    const deps = baseDeps({
+      ensureFirebaseAdmin: async () => {},
+      verifyIdToken: async () => { throw new FirebaseConfigError("late failure", "admin_initialization", "config/init-failed"); },
+    });
+    const handler = createHandler(deps);
+    const res = await handler(makeEvent({ body: chatBody() }));
+    assert.strictEqual(res.statusCode, 500);
+    assert.strictEqual(JSON.parse(res.body).error, "assistant_not_configured");
+  });
+
+  await test("Owner authorization (403 owner_only) is unaffected by the auth-boundary refactor", async () => {
+    _resetBurstStateForTests();
+    const deps = baseDeps({ ensureFirebaseAdmin: async () => {} });
+    const handler = createHandler(deps);
+    const res = await handler(makeEvent({ headers: { authorization: "Bearer friend-token" }, body: chatBody() }));
+    assert.strictEqual(res.statusCode, 403);
+    assert.strictEqual(JSON.parse(res.body).error, "owner_only");
+  });
+
+  await test("safe stage logging reveals only stage + a sanitized code — never the JSON, key, email, token, or raw SDK message", async () => {
+    _resetBurstStateForTests();
+    captureConsoleError();
+    const deps = baseDeps({
+      ensureFirebaseAdmin: async () => {
+        throw new FirebaseConfigError("firebase-admin failed to initialize from the provided credential", "admin_initialization", "config/init-failed");
+      },
+    });
+    const handler = createHandler(deps);
+    await handler(makeEvent({ body: chatBody() }));
+    restoreConsoleError();
+    const joined = consoleErrorCalls.join("\n");
+    assert.ok(joined.includes("stage=admin_initialization"));
+    assert.ok(joined.includes("code=config/init-failed"));
+    assert.ok(!joined.includes(FAKE_KEY));
+    assert.ok(!joined.includes(OWNER_EMAIL));
+    assert.ok(!/BEGIN PRIVATE KEY/.test(joined));
+    assert.ok(!/"project_id"/.test(joined), "must never log the raw service-account JSON");
+  });
+
+  await test("a token-verification failure with no err.code logs code=no_code, not undefined", async () => {
+    _resetBurstStateForTests();
+    captureConsoleError();
+    const deps = baseDeps({
+      ensureFirebaseAdmin: async () => {},
+      verifyIdToken: async () => { throw new Error("some low-level failure with no .code"); },
+    });
+    const handler = createHandler(deps);
+    await handler(makeEvent({ body: chatBody() }));
+    restoreConsoleError();
+    const joined = consoleErrorCalls.join("\n");
+    assert.ok(joined.includes("stage=token_verification"));
+    assert.ok(joined.includes("code=no_code"));
+    assert.ok(!joined.includes("undefined"), "must never print the literal word 'undefined' the way the original bug did");
+  });
+
+  console.log("\nFrontend retry-once-on-401 policy (mirrors assistant.js's withOneRetryOn401)");
+
+  // Duplicated verbatim from assistant.js's withOneRetryOn401 (documented there as intentionally
+  // duplicated, per this repo's own per-file convention) so the exact retry policy — one retry,
+  // forced refresh, never a loop — is unit-testable without a browser/DOM/Firebase environment.
+  async function withOneRetryOn401(attempt) {
+    let res = await attempt(false);
+    if (res.status === 401) {
+      res = await attempt(true);
+    }
+    return res;
+  }
+
+  await test("withOneRetryOn401: a first-try success never retries", async () => {
+    let calls = 0;
+    const res = await withOneRetryOn401(async () => { calls++; return { status: 200 }; });
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(res.status, 200);
+  });
+
+  await test("withOneRetryOn401: a 401 then 200 retries exactly once, second attempt forces refresh", async () => {
+    const forceFlags = [];
+    let calls = 0;
+    const res = await withOneRetryOn401(async (force) => {
+      calls++;
+      forceFlags.push(force);
+      return calls === 1 ? { status: 401 } : { status: 200 };
+    });
+    assert.strictEqual(calls, 2);
+    assert.deepStrictEqual(forceFlags, [false, true]);
+    assert.strictEqual(res.status, 200);
+  });
+
+  await test("withOneRetryOn401: a 401 then 401 again makes exactly 2 calls total, never loops", async () => {
+    let calls = 0;
+    const res = await withOneRetryOn401(async () => { calls++; return { status: 401 }; });
+    assert.strictEqual(calls, 2, "must never call a 3rd time even if the retry also fails");
+    assert.strictEqual(res.status, 401);
+  });
+
+  await test("withOneRetryOn401: a non-401 error status (e.g. 500) never triggers a retry", async () => {
+    let calls = 0;
+    const res = await withOneRetryOn401(async () => { calls++; return { status: 500 }; });
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(res.status, 500);
+  });
 
   console.log("\nSecret hygiene");
 
@@ -735,10 +1028,10 @@ async function run() {
     assert.strictEqual(cachePutCalls.length, 1, "a normal page request should still be cached as before");
   });
 
-  await test("service-worker.js CACHE version is eden-shell-v23 and includes assistant.html/assistant.js in PRECACHE", async () => {
+  await test("service-worker.js CACHE version is eden-shell-v24 (bumped for this pass's assistant.js frontend change) and includes assistant.html/assistant.js in PRECACHE", async () => {
     const root = path.resolve(__dirname, "..", "..", "..");
     const src = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
-    assert.ok(/const CACHE = "eden-shell-v23"/.test(src));
+    assert.ok(/const CACHE = "eden-shell-v24"/.test(src));
     assert.ok(/"assistant\.html"/.test(src));
     assert.ok(/"assistant\.js"/.test(src));
   });
