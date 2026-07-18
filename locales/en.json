@@ -736,6 +736,8 @@
     "disclaimer": "AI can make mistakes. Check anything important.",
     "clear_conversation": "Clear conversation",
     "copy_response": "Copy response",
+    "open_source": "Open",
+    "opened_from_assistant": "opened from Atlas Assistant",
     "retry": "Retry",
     "cancelled": "Cancelled.",
     "thinking": "Thinking…",

@@ -29,6 +29,7 @@
 const { runAgentLoop, QwenError } = require("./lib/qwen");
 const { checkBurst, checkAndIncrementDailyUsage } = require("./lib/rate-limit");
 const { FirebaseConfigError } = require("./lib/firebase-admin");
+const { buildDateContext, DEFAULT_TIME_ZONE } = require("./lib/date-utils");
 
 // Duplicated from firebase-init.js's OWNER_EMAIL on purpose (see that file's own comment) — this
 // Function has no way to import a browser ES module, and re-deriving "who is the Owner" from
@@ -141,7 +142,13 @@ function validateRequestBody(raw) {
   return { value: { message: body.message.trim(), history, scopes } };
 }
 
-function systemPrompt(scopes) {
+// `dateContext` is the ONLY source of truth for "today" this prompt gives the model — see
+// lib/date-utils.js's header comment for the production incident (relative phrases like "this
+// month"/"June" resolving against a hallucinated year) this directly fixes. The model is never
+// told to compute a date range itself for a relative phrase when a tool offers `relativePeriod`
+// — that math happens deterministically in lib/date-utils.js instead (see list_calendar/
+// list_journey's tool descriptions), which is what makes it fixable and testable at all.
+function systemPrompt(scopes, dateContext) {
   const scopeList = scopes.length ? scopes.join(", ") : "(none selected — no personal-data tools are available this turn)";
   return [
     "You are the EdenAtlas Atlas Assistant, a private, read-only helper for the app's Owner only.",
@@ -149,6 +156,18 @@ function systemPrompt(scopes) {
     `The Owner has enabled these data scopes for this conversation: ${scopeList}. Never claim to use a scope that isn't listed.`,
     "Never invent facts about the Owner's data — only state things a tool result actually returned. If a tool returns no results, say so plainly.",
     "Keep answers concise and cite which Memories/Journal entries/Journey events you used when relevant.",
+    // --- Authoritative date context (task A/B) ---
+    `Authoritative current date: currentLocalDate=${dateContext.currentLocalDate}, currentYear=${dateContext.currentYear}, currentMonth=${dateContext.currentMonth}, timeZone=${dateContext.timeZone}.`,
+    "This is ground truth for \"today\" — never use your own training data, a provider clock, or an assumed year for any relative date phrase (\"this month,\" \"last month,\" \"June,\" \"recently,\" etc). If the Owner gives an explicit date or year (e.g. \"June 2024\"), that explicit value always wins over any relative-phrase resolution.",
+    "For list_calendar/list_journey, prefer their relativePeriod parameter over computing startDate/endDate yourself whenever the Owner used a relative phrase — it is resolved deterministically from currentLocalDate server-side, so you cannot get the year wrong by using it. A bare month name with no year (e.g. \"June\") means the most recent occurrence not after currentLocalDate; only set direction=\"forward\" when the wording clearly means upcoming/next (e.g. \"next June,\" \"this coming December\"). If a date phrase is genuinely ambiguous even with this rule, ask one short clarifying question instead of guessing a year.",
+    "Never claim an item is in the past or future without actually comparing its date to currentLocalDate.",
+    // --- Calendar semantics (task C) ---
+    "list_calendar and list_journey summarize an ACTIVITY calendar, not a scheduling system: memories' dates are uploadedAt (when the Memory was uploaded) and journals' dates are createdAt (when the entry was written) — never a planned/future event time. Describe these records as \"recorded,\" \"uploaded,\" or \"created.\" NEVER describe them as \"scheduled,\" \"pre-scheduled,\" \"a placeholder,\" or \"added in advance\" — no field in this data means that, and using that language would misrepresent what was actually stored. Finance/expenses are never included in any calendar or journey summary.",
+    "When you report on a date range, state the actual range you searched (a tool's resolvedRange, if present) so the Owner can see exactly what was covered.",
+    // --- Language (task H) ---
+    "Respond in the same language the Owner's message is written in — if it's in Chinese, answer in Chinese; if it's in English, answer in English. Never translate or alter the Owner's own stored titles, captions, tags, or place names — quote them as stored.",
+    // --- Output formatting ---
+    "Write plain, simple prose and short bullet lists only. Do not use Markdown heading syntax, tables, or nested formatting — the client renders plain paragraphs and single-level lists only.",
   ].join(" ");
 }
 
@@ -311,14 +330,20 @@ function createHandler(deps) {
       return jsonResponse(429, { ok: false, error: "rate_limited", scope: "daily", limit: daily.limit }, baseHeaders);
     }
 
-    // 7. Run the bounded, read-only tool-calling agent loop against Qwen.
+    // 7. Run the bounded, read-only tool-calling agent loop against Qwen. `now` is the exact
+    // same server clock reading already used for rate limiting above (never a second, possibly-
+    // different `new Date()` call) — one authoritative "now" per request, threaded everywhere.
+    const timeZone = DEFAULT_TIME_ZONE;
+    const dateContext = buildDateContext(now, timeZone);
     try {
       const result = await runAgentLoop({
         qwenConfig: { baseUrl: env.QWEN_BASE_URL, apiKey: env.DASHSCOPE_API_KEY, model: env.QWEN_MODEL },
-        systemPrompt: systemPrompt(scopes),
+        systemPrompt: systemPrompt(scopes, dateContext),
         history,
         userMessage: message,
         scopes,
+        now,
+        timeZone,
         db,
         uid,
         fetchImpl: deps.fetchImpl,

@@ -128,6 +128,8 @@ function eventRow(event) {
 
   const row = document.createElement("div");
   row.className = "is-visible relative pl-8";
+  row.dataset.eventId = event.id; // used by maybeFocusEventFromQuery() to deep-link from the Atlas Assistant's source chips
+  row.tabIndex = -1; // programmatically focusable (for the deep-link highlight) without joining the normal Tab order
   row.innerHTML = `
     <span class="absolute left-0 top-1 w-3 h-3 rounded-full ${meta.bg} border-2 ${meta.border}"></span>
     <div class="cursor-pointer">
@@ -293,13 +295,50 @@ function maybeAutoOpenFromQuickAdd(mayParticipate) {
   }
 }
 
-onAuthStateChanged(auth, (user) => {
+// Deep-link support (task G): timeline.html?event=<id> — from the Atlas Assistant's source
+// chips (assistant.js). Never trusted as authorization by itself: only ever resolved against
+// `cachedEvents`, already built by fetchVisibleEvents() from Firestore-scoped queries (the
+// signed-in user's own docs + public docs). An id that's missing, belongs to someone else's
+// private content, or doesn't resolve at all simply isn't found — fail safely, no error, no way
+// to tell from the outside whether it exists. The param is always stripped via
+// history.replaceState, whether or not it resolved.
+function maybeFocusEventFromQuery() {
+  const params = new URLSearchParams(location.search);
+  const targetId = params.get("event");
+  if (!targetId) return;
+  params.delete("event");
+  const qs = params.toString();
+  history.replaceState(null, "", location.pathname + (qs ? `?${qs}` : "") + location.hash);
+
+  const targetEvent = cachedEvents.find((e) => e.id === targetId);
+  if (!targetEvent) return;
+
+  // The matching row might not be in the DOM yet if a visibility/type filter is currently
+  // active (renderTimeline() only renders visibleEvents()'s filtered subset).
+  const stillVisible =
+    activeFilter === "all" ||
+    (["public", "private", "connections"].includes(activeFilter) ? targetEvent.visibility === activeFilter : targetEvent.type === activeFilter);
+  if (!stillVisible) setFilter("all");
+
+  requestAnimationFrame(() => {
+    const row = timelineContainer.querySelector(`[data-event-id="${CSS.escape(targetId)}"]`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.setAttribute("aria-label", `${targetEvent.title || i18nT("common.untitled")} — ${i18nT("assistant.opened_from_assistant") !== "assistant.opened_from_assistant" ? i18nT("assistant.opened_from_assistant") : "opened from Atlas Assistant"}`);
+    row.classList.add("eden-deep-link-highlight");
+    row.focus({ preventScroll: true });
+    setTimeout(() => row.classList.remove("eden-deep-link-highlight"), 2500);
+  });
+}
+
+onAuthStateChanged(auth, async (user) => {
   if (user) {
     renderSignedIn(user);
   } else {
     renderSignedOut();
   }
-  fetchVisibleEvents();
+  await fetchVisibleEvents();
+  maybeFocusEventFromQuery();
 });
 
 function openModal() {

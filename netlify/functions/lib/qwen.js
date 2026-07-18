@@ -80,50 +80,70 @@ async function callQwenChatCompletions({ baseUrl, apiKey, model, messages, tools
   return json;
 }
 
-function extractSources(toolName, result) {
-  if (!result || typeof result !== "object") return [];
-  if (toolName === "search_memories" || toolName === "find_memories_missing_location") {
-    return (result.results || []).map((r) => ({ type: "memory", id: r.id, label: r.caption || "Untitled memory" }));
-  }
-  if (toolName === "search_journals") {
-    return (result.results || []).map((r) => ({ type: "journal", id: r.id, label: r.title || "Untitled entry" }));
-  }
-  if (toolName === "list_journey") {
-    return (result.results || []).map((r) => ({ type: "journey", id: r.id, label: r.title || "Untitled event" }));
-  }
-  if (toolName === "list_calendar") {
-    return (result.days || []).flatMap((d) => (d.samples || []).map((s) => ({ type: s.type, id: s.id, label: s.title || "Untitled" })));
-  }
-  return [];
-}
-
-function dedupeSources(sources) {
+// Builds the FRONTEND-facing source list from `ctx`'s handle registry (real {type,id,label} —
+// the frontend is the authenticated Owner's own browser and needs real ids to build working
+// gallery.html/journal.html/timeline.html deep links) — deliberately never derived from what a
+// tool sent back to the model (which only ever contains opaque handles, never ids; see
+// lib/tools.js's header comment). Deduped by (type,id): the same item can legitimately be
+// registered more than once across tool calls in one turn (e.g. surfaced by both
+// search_memories and list_calendar), and should only appear once as a source chip.
+function dedupeSources(collectedSources) {
   const seen = new Set();
   const out = [];
-  for (const s of sources) {
+  for (const s of collectedSources) {
     const key = `${s.type}:${s.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(s);
+    out.push({ type: s.type, id: s.id, label: s.label });
   }
   return out.slice(0, 20);
+}
+
+// Creates a fresh, per-request opaque-handle registry (task E). Nothing here ever persists past
+// one runAgentLoop() call — a handle issued during one HTTP request can never resolve during a
+// later, different request, even for the exact same authenticated Owner, even for the exact same
+// underlying document. This is what makes `ctx.resolveHandle()` safe to trust in draft_reflection
+// without re-checking ownership: the only way a handle exists in this registry at all is that
+// THIS request's own tool execution (already uid-scoped) put it there moments ago.
+function createRefRegistry() {
+  const byHandle = new Map(); // handle -> { type, id }
+  const collected = []; // { type, id, handle, label } — in registration order, for sources
+  let counter = 0;
+  return {
+    registerRef(type, id, label) {
+      counter += 1;
+      const handle = `h${counter}`;
+      byHandle.set(handle, { type, id });
+      collected.push({ type, id, handle, label: label || null });
+      return handle;
+    },
+    resolveHandle(handle) {
+      return byHandle.get(handle) || null;
+    },
+    collected,
+  };
 }
 
 // Runs up to MAX_TOOL_ROUNDS request/tool-execution round-trips against Qwen. `db`/`uid` are
 // the already-verified Firestore Admin handle and Owner uid — every tool executor threads them
 // through untouched; nothing here ever reads a uid or collection name out of the model's output.
-async function runAgentLoop({ qwenConfig, systemPrompt, history, userMessage, scopes, db, uid, fetchImpl }) {
+// `now`/`timeZone` are the single authoritative clock reading for this whole request (see
+// assistant.js, which reads `now` once and passes it here) — every date-resolving tool call
+// during this loop sees the exact same `now`, so a multi-round conversation can never drift
+// between two different ideas of "today" mid-turn.
+async function runAgentLoop({ qwenConfig, systemPrompt, history, userMessage, scopes, db, uid, now, timeZone, fetchImpl }) {
   const messages = [{ role: "system", content: systemPrompt }, ...history, { role: "user", content: userMessage }];
   const toolDefs = toolDefsForScopes(scopes);
-  const seenRefs = new Set();
+  const registry = createRefRegistry();
   const ctx = {
     db,
     uid,
-    registerRef: (type, id) => seenRefs.add(`${type}:${id}`),
-    wasRefSeen: (type, id) => seenRefs.has(`${type}:${id}`),
+    now,
+    timeZone,
+    registerRef: registry.registerRef,
+    resolveHandle: registry.resolveHandle,
   };
 
-  const allSources = [];
   let finalAnswer = null;
   let lastUsage = null;
   let roundsUsed = 0;
@@ -155,10 +175,14 @@ async function runAgentLoop({ qwenConfig, systemPrompt, history, userMessage, sc
           resultPayload = { error: "invalid_tool_arguments_json" };
         } else {
           try {
-            const validated = TOOLS[name].validate(parsedArgs);
-            const result = await TOOLS[name].execute(validated, ctx);
-            resultPayload = result;
-            allSources.push(...extractSources(name, result));
+            const validated = TOOLS[name].validate(parsedArgs, ctx);
+            // `result` is exactly what gets JSON-stringified for the model below — tool
+            // executors are responsible for never putting a raw `id` field in it (they put the
+            // opaque `handle` from ctx.registerRef() instead; see lib/tools.js's header
+            // comment). This is the enforcement point, not a place that strips ids after the
+            // fact — there is deliberately no generic "id stripper" here that could be bypassed
+            // by a tool shaped slightly differently than expected.
+            resultPayload = await TOOLS[name].execute(validated, ctx);
           } catch (err) {
             resultPayload = { error: err instanceof ToolValidationError ? err.message : "tool_execution_failed" };
           }
@@ -179,7 +203,7 @@ async function runAgentLoop({ qwenConfig, systemPrompt, history, userMessage, sc
     finalAnswer = "I gathered some information but reached the step limit before finishing. Try asking a more specific question, or narrow the date range.";
   }
 
-  return { answer: finalAnswer, sources: dedupeSources(allSources), usage: lastUsage, roundsUsed };
+  return { answer: finalAnswer, sources: dedupeSources(registry.collected), usage: lastUsage, roundsUsed };
 }
 
 module.exports = {

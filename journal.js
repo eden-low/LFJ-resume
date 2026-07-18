@@ -181,6 +181,8 @@ function journalCard(entry) {
   const card = document.createElement("article");
   card.className = "is-visible bg-cardBg/90 neon-border-purple rounded-2xl overflow-hidden cursor-pointer";
   card.dataset.key = key;
+  card.dataset.entryId = entry.id; // used by maybeFocusEntryFromQuery() to deep-link from the Atlas Assistant's source chips
+  card.tabIndex = -1; // programmatically focusable (for the deep-link highlight) without joining the normal Tab order
 
   const tagsHtml = (entry.tags || [])
     .map((t) => `<span class="text-[10px] font-code px-2 py-0.5 rounded-full border border-borderNeon text-textGray">#${t}</span>`)
@@ -352,13 +354,49 @@ function maybeAutoOpenFromQuickAdd(mayParticipate) {
   }
 }
 
-onAuthStateChanged(auth, (user) => {
+// Deep-link support (task G): journal.html?entry=<id> — from the Atlas Assistant's source chips
+// (assistant.js). Never trusted as authorization by itself: only ever resolved against
+// `cachedEntries`, already built by fetchVisibleEntries() from Firestore-scoped queries (the
+// signed-in user's own docs + public docs). An id that's missing, belongs to someone else's
+// private content, or doesn't resolve at all simply isn't found — fail safely, no error, no way
+// to tell from the outside whether it exists. The param is always stripped via
+// history.replaceState, whether or not it resolved.
+function maybeFocusEntryFromQuery() {
+  const params = new URLSearchParams(location.search);
+  const targetId = params.get("entry");
+  if (!targetId) return;
+  params.delete("entry");
+  const qs = params.toString();
+  history.replaceState(null, "", location.pathname + (qs ? `?${qs}` : "") + location.hash);
+
+  const entry = cachedEntries.find((e) => e.id === targetId);
+  if (!entry) return;
+
+  // The matching card might not be in the DOM yet if a visibility/mood filter is currently
+  // active (renderGrid() only renders visibleEntries()'s filtered subset) — each setter already
+  // re-renders internally when it actually changes something.
+  if (activeVisibility !== "all" && entry.visibility !== activeVisibility) setVisibilityFilter("all");
+  if (activeMood !== "all" && entry.mood !== activeMood) setMoodFilter("all");
+
+  requestAnimationFrame(() => {
+    const card = journalGrid.querySelector(`[data-entry-id="${CSS.escape(targetId)}"]`);
+    if (!card) return;
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    card.setAttribute("aria-label", `${entry.title || i18nT("common.untitled")} — ${i18nT("assistant.opened_from_assistant") !== "assistant.opened_from_assistant" ? i18nT("assistant.opened_from_assistant") : "opened from Atlas Assistant"}`);
+    card.classList.add("eden-deep-link-highlight");
+    card.focus({ preventScroll: true });
+    setTimeout(() => card.classList.remove("eden-deep-link-highlight"), 2500);
+  });
+}
+
+onAuthStateChanged(auth, async (user) => {
   if (user) {
     renderSignedIn(user);
   } else {
     renderSignedOut();
   }
-  fetchVisibleEntries();
+  await fetchVisibleEntries();
+  maybeFocusEntryFromQuery();
 });
 
 function openModal() {

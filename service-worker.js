@@ -17,6 +17,14 @@
 // Alibaba Model Studio endpoint itself is never fetched by the browser at all (only server-side,
 // from netlify/functions/assistant.js) — nothing here can ever intercept that call — this SW's
 // existing cross-origin bypass (line below) already covers it if that ever changes.
+// v25 (date-correctness, calendar-semantics, safe-output and source-navigation pass): several
+// already-precached browser files changed and need to be re-fetched, not served stale —
+// assistant.js (safe DOM-based rendering replacing innerHTML, source-chip deep links, New Chat
+// reset), gallery.js/journal.js/timeline.js (new ?memory=/?entry=/?event= deep-link handlers),
+// styles.css (the new .eden-deep-link-highlight rule), and locales/en.json+zh-CN.json (new
+// assistant.* i18n keys). netlify/functions/**/*.js also changed but was never part of PRECACHE
+// to begin with (Function source isn't a static browser asset — see scripts/build-site.js's
+// publish allowlist, which structurally excludes netlify/ from the deployed site).
 // v24 (Atlas Assistant production auth fix): assistant.js's frontend changed (the
 // withOneRetryOn401 token-refresh-and-retry policy) and is precached below, so the cache is
 // bumped again to guarantee that change is actually fetched rather than served from an
@@ -30,7 +38,7 @@
 // change — index.html is now the public recruiter Portfolio, home.html is the private app
 // landing page), v21 (Trash privacy fix), v20 (Memory Trash + location-edit fix), v19 (canonical
 // location pipeline fix).
-const CACHE = "eden-shell-v24";
+const CACHE = "eden-shell-v25";
 
 const PRECACHE = [
   "index.html", "home.html", "resume.html", "gallery.html", "journal.html", "expenses.html",

@@ -14,11 +14,28 @@
 // anywhere, by construction (not by best-effort filtering): image bytes, Storage paths/
 // download URLs, download tokens, exact latitude/longitude, Finance/expenses data, other
 // users' content, or trashed/deleted Memories.
+//
+// Two invariants added by the "date-correctness, calendar-semantics, safe-output and
+// source-navigation" pass, both load-bearing enough to call out here rather than only at their
+// call sites:
+//   1. Raw Firestore document IDs never appear in anything a tool returns to the model. Every
+//      item a tool surfaces is registered via `ctx.registerRef(type, id, label)`, which returns
+//      an opaque, per-request `handle` string — that handle (never the id) is what goes into the
+//      JSON a tool hands back for the model to read. `draft_reflection` — the only tool that
+//      lets the model reference an item it saw earlier — only ever accepts that same opaque
+//      handle back, resolved against a registry that exists solely for the current verified
+//      request (see qwen.js's runAgentLoop, which creates a fresh registry every call). The
+//      model can never supply an arbitrary Firestore ID and have it accepted.
+//   2. `ctx.registerRef` must only ever be called for an item that is ACTUALLY included in what
+//      the tool is about to tell the model — never for every document a query happened to fetch.
+//      (list_calendar had exactly this bug: it called registerRef for every fetched photo/
+//      journal regardless of whether the item fell inside the requested date range.)
+
+const { resolveRelativePeriod, DEFAULT_TIME_ZONE, MS_PER_DAY, localMidnightUtc, localDateString } = require("./date-utils");
 
 const MAX_TEXT_QUERY_LEN = 120;
 const CAPTION_TRUNCATE = 200;
 const JOURNAL_TRUNCATE = 300;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 class ToolValidationError extends Error {}
 
@@ -51,30 +68,24 @@ function isPlainString(v) {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-function parseBoundedDate(v) {
+function parseDateOnlyParts(v) {
   if (!isPlainString(v) || !DATE_RE.test(v)) return null;
-  const d = new Date(v + "T00:00:00Z");
-  return Number.isNaN(d.getTime()) ? null : d;
+  const [year, month, day] = v.split("-").map(Number);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { year, month, day };
 }
 
-// Shared "resolve + bound a date range" logic for list_journey/list_calendar. Never trusts an
-// unbounded range: always clamps to `maxDays`, and always produces a concrete [start, end] even
-// when the caller gave nothing (defaults to the trailing `defaultDays` window ending today).
-function resolveDateRange({ startDate, endDate }, { maxDays, defaultDays }) {
-  const now = new Date();
-  let end = endDate ? parseBoundedDate(endDate) : null;
-  let start = startDate ? parseBoundedDate(startDate) : null;
-  if (startDate && !start) throw new ToolValidationError("invalid_start_date");
-  if (endDate && !end) throw new ToolValidationError("invalid_end_date");
-
-  if (!end) end = start ? new Date(start.getTime() + defaultDays * MS_PER_DAY) : now;
-  if (!start) start = new Date(end.getTime() - defaultDays * MS_PER_DAY);
-  if (start > end) throw new ToolValidationError("start_date_after_end_date");
-
-  const rangeDays = Math.ceil((end.getTime() - start.getTime()) / MS_PER_DAY);
-  if (rangeDays > maxDays) throw new ToolValidationError(`date_range_exceeds_${maxDays}_days`);
-
-  return { start, end };
+// An explicit "YYYY-MM-DD" from the model means that LOCAL calendar day in `timeZone` — task B:
+// "Handle Malaysia-local day/month boundaries before converting to Firestore timestamps." Naive
+// `new Date(v + "T00:00:00Z")` (the previous behavior) anchors to UTC midnight instead, which in
+// Asia/Kuala_Lumpur (UTC+8) is already 08:00 local — an explicit endDate would then silently cut
+// off the last 8 local hours of that day. `edge: "start"` = local midnight of that day;
+// `edge: "end"` = one millisecond before the next day's local midnight.
+function localDayBoundaryUtc(v, timeZone, edge) {
+  const parts = parseDateOnlyParts(v);
+  if (!parts) return null;
+  const start = localMidnightUtc(parts.year, parts.month, parts.day, timeZone);
+  return edge === "end" ? new Date(start.getTime() + MS_PER_DAY - 1) : start;
 }
 
 function clampInt(v, { min, max, fallback }) {
@@ -97,14 +108,81 @@ function textMatches(haystackParts, needle) {
   return haystackParts.some((part) => typeof part === "string" && part.toLowerCase().includes(n));
 }
 
+// Resolves a tool's date-range arguments in one consistent priority order (task A: "explicit
+// dates supplied by the user always win"): explicit startDate/endDate first, then a server-
+// resolved `relativePeriod` (see date-utils.js — this is where "this month"/"June"/etc turn into
+// real dates, deterministically, from `ctx.now`/`ctx.timeZone` — never the model's own guess),
+// then (only where the caller allows it) a trailing default window ending at `ctx.now`. Never
+// calls `new Date()` itself — `ctx.now` is always the single authoritative clock reading for
+// this whole request (see assistant.js, which reads it once and threads it through).
+function resolveRangeFromArgs(args, ctx, { maxDays, defaultDays, allowDefault, relativeEnumName }) {
+  const hasExplicitStart = !!(args && args.startDate);
+  const hasExplicitEnd = !!(args && args.endDate);
+
+  if (hasExplicitStart || hasExplicitEnd) {
+    if (!hasExplicitStart || !hasExplicitEnd) throw new ToolValidationError("start_and_end_date_required");
+    const start = localDayBoundaryUtc(args.startDate, ctx.timeZone, "start");
+    const end = localDayBoundaryUtc(args.endDate, ctx.timeZone, "end");
+    if (!start) throw new ToolValidationError("invalid_start_date");
+    if (!end) throw new ToolValidationError("invalid_end_date");
+    if (start > end) throw new ToolValidationError("start_date_after_end_date");
+    const rangeDays = Math.ceil((end.getTime() - start.getTime()) / MS_PER_DAY);
+    if (rangeDays > maxDays) throw new ToolValidationError(`date_range_exceeds_${maxDays}_days`);
+    // Echoes the caller's own YYYY-MM-DD text back verbatim — never re-derived from the `start`/
+    // `end` Date objects via toISOString(), which would silently reintroduce the exact UTC-vs-
+    // local mismatch this whole pass exists to fix (an earlier draft of this function did this).
+    return { start, end, startDate: args.startDate, endDate: args.endDate, timeZone: ctx.timeZone, resolvedFrom: "explicit" };
+  }
+
+  if (args && args.relativePeriod) {
+    const resolved = resolveRelativePeriod(args.relativePeriod, {
+      now: ctx.now,
+      timeZone: ctx.timeZone,
+      direction: args.direction,
+    });
+    if (!resolved) throw new ToolValidationError(`unrecognized_${relativeEnumName || "relativePeriod"}`);
+    const rangeDays = Math.ceil((resolved.end.getTime() - resolved.start.getTime()) / MS_PER_DAY);
+    if (rangeDays > maxDays) throw new ToolValidationError(`date_range_exceeds_${maxDays}_days`);
+    return {
+      start: resolved.start,
+      end: resolved.end,
+      startDate: resolved.startDate,
+      endDate: resolved.endDate,
+      timeZone: ctx.timeZone,
+      resolvedFrom: "relative",
+    };
+  }
+
+  if (!allowDefault) throw new ToolValidationError("start_and_end_date_required");
+  const end = ctx.now;
+  const start = new Date(end.getTime() - defaultDays * MS_PER_DAY);
+  return {
+    start,
+    end,
+    startDate: localDateString(start, ctx.timeZone),
+    endDate: localDateString(end, ctx.timeZone),
+    timeZone: ctx.timeZone,
+    resolvedFrom: "default",
+  };
+}
+
 // ---- Firestore reads. Every function below is the ONLY place its collection name appears —
 // there is no generic "run this query" path the model could ever reach. ----
 
+// Merges two queries — `uid` (the current field every write path uses) and the legacy
+// `uploadedBy` field older Memories may still carry — deduped by document ID, exactly mirroring
+// gallery.js's own `fetchOwnPosts(uid)` (see CLAUDE.md's "Trash privacy + ownership-merge fix"
+// history entry). Without this, a Memory written before the `uid` field existed would silently
+// never be visible to the Assistant even though it's genuinely the Owner's own content.
 async function fetchOwnerActivePhotos(db, uid) {
-  const snap = await db.collection("photos").where("uid", "==", uid).get();
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((doc) => !isDeletedMemory(doc));
+  const [byUid, byUploadedBy] = await Promise.all([
+    db.collection("photos").where("uid", "==", uid).get(),
+    db.collection("photos").where("uploadedBy", "==", uid).get(),
+  ]);
+  const merged = new Map();
+  byUid.docs.forEach((d) => merged.set(d.id, { id: d.id, ...d.data() }));
+  byUploadedBy.docs.forEach((d) => merged.set(d.id, { id: d.id, ...d.data() }));
+  return [...merged.values()].filter((doc) => !isDeletedMemory(doc));
 }
 
 async function fetchOwnerJournals(db, uid) {
@@ -130,6 +208,20 @@ function docMillis(doc, field) {
 // this tool is even offered to the model. `draft_reflection` has no data scope of its own — it
 // only ever synthesizes from refs the model already legitimately received this turn.
 
+const MONTH_ENUM = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december",
+];
+const CALENDAR_RELATIVE_ENUM = ["this_month", "last_month", "next_month", ...MONTH_ENUM];
+const JOURNEY_RELATIVE_ENUM = ["this_month", "last_month", "next_month", "this_year", "last_year", ...MONTH_ENUM];
+
+const RELATIVE_PERIOD_DESCRIPTION =
+  "Optional alternative to startDate/endDate for a relative phrase the user used (e.g. \"this month,\" \"June\"). " +
+  "Resolved server-side against the authoritative currentLocalDate given in your instructions — never guess a year yourself. " +
+  "A bare month name with no year means the most recent occurrence not after currentLocalDate, UNLESS the user's wording " +
+  "clearly means upcoming/next, in which case also set direction=\"forward\". Ignored if startDate/endDate are also given " +
+  "(explicit dates always win).";
+
 const TOOLS = {
   search_memories: {
     scope: "memories",
@@ -153,14 +245,18 @@ const TOOLS = {
         .filter((p) => textMatches([p.caption, p.locationName, p.locationAddress, ...(Array.isArray(p.tags) ? p.tags : [])], args.query))
         .sort((a, b) => docMillis(b, "uploadedAt") - docMillis(a, "uploadedAt"))
         .slice(0, args.limit)
-        .map((p) => ({
-          id: p.id,
-          caption: truncate(p.caption || "", CAPTION_TRUNCATE),
-          tags: Array.isArray(p.tags) ? p.tags.slice(0, 10) : [],
-          locationName: p.locationName || null,
-          hasConfirmedLocation: hasConfirmedCoords(p),
-        }));
-      matches.forEach((m) => ctx.registerRef("memory", m.id));
+        .map((p) => {
+          const caption = truncate(p.caption || "", CAPTION_TRUNCATE);
+          const handle = ctx.registerRef("memory", p.id, p.caption || "Untitled memory");
+          return {
+            handle,
+            caption,
+            tags: Array.isArray(p.tags) ? p.tags.slice(0, 10) : [],
+            locationName: p.locationName || null,
+            hasConfirmedLocation: hasConfirmedCoords(p),
+            recordedAt: docMillis(p, "uploadedAt") ? localDateString(new Date(docMillis(p, "uploadedAt")), ctx.timeZone) : null,
+          };
+        });
       return { count: matches.length, results: matches };
     },
   },
@@ -183,8 +279,10 @@ const TOOLS = {
         .filter((p) => !hasConfirmedCoords(p))
         .sort((a, b) => docMillis(b, "uploadedAt") - docMillis(a, "uploadedAt"))
         .slice(0, args.limit)
-        .map((p) => ({ id: p.id, caption: truncate(p.caption || "", CAPTION_TRUNCATE), locationName: p.locationName || null }));
-      missing.forEach((m) => ctx.registerRef("memory", m.id));
+        .map((p) => {
+          const handle = ctx.registerRef("memory", p.id, p.caption || "Untitled memory");
+          return { handle, caption: truncate(p.caption || "", CAPTION_TRUNCATE), locationName: p.locationName || null };
+        });
       return { count: missing.length, results: missing };
     },
   },
@@ -210,33 +308,38 @@ const TOOLS = {
         .filter((j) => textMatches([j.title, j.content, ...(Array.isArray(j.tags) ? j.tags : [])], args.query))
         .sort((a, b) => docMillis(b, "createdAt") - docMillis(a, "createdAt"))
         .slice(0, args.limit)
-        .map((j) => ({
-          id: j.id,
-          title: truncate(j.title || "", 100),
-          excerpt: truncate(j.content || "", JOURNAL_TRUNCATE),
-          mood: j.mood || null,
-          tags: Array.isArray(j.tags) ? j.tags.slice(0, 10) : [],
-        }));
-      matches.forEach((m) => ctx.registerRef("journal", m.id));
+        .map((j) => {
+          const handle = ctx.registerRef("journal", j.id, j.title || "Untitled entry");
+          return {
+            handle,
+            title: truncate(j.title || "", 100),
+            excerpt: truncate(j.content || "", JOURNAL_TRUNCATE),
+            mood: j.mood || null,
+            tags: Array.isArray(j.tags) ? j.tags.slice(0, 10) : [],
+            recordedAt: docMillis(j, "createdAt") ? localDateString(new Date(docMillis(j, "createdAt")), ctx.timeZone) : null,
+          };
+        });
       return { count: matches.length, results: matches };
     },
   },
 
   list_journey: {
     scope: "journey",
-    description: "List the Owner's own Journey (life) events within an optional bounded date range (max 366 days).",
+    description: "List the Owner's own Journey (life) events within a bounded date range (max 366 days, default trailing 90 days). Accepts either explicit startDate/endDate or a relativePeriod.",
     parameters: {
       type: "object",
       properties: {
         startDate: { type: "string", description: "YYYY-MM-DD, inclusive." },
         endDate: { type: "string", description: "YYYY-MM-DD, inclusive." },
+        relativePeriod: { type: "string", enum: JOURNEY_RELATIVE_ENUM, description: RELATIVE_PERIOD_DESCRIPTION },
+        direction: { type: "string", enum: ["forward"], description: "Only with a bare month name: resolve to the next upcoming occurrence instead of the most recent past one." },
         limit: { type: "integer", description: "Max results (1-20).", minimum: 1, maximum: 20 },
       },
       required: [],
       additionalProperties: false,
     },
-    validate(args) {
-      const range = resolveDateRange(args || {}, { maxDays: 366, defaultDays: 90 });
+    validate(args, ctx) {
+      const range = resolveRangeFromArgs(args, ctx, { maxDays: 366, defaultDays: 90, allowDefault: true, relativeEnumName: "relativePeriod" });
       return { ...range, limit: clampInt(args && args.limit, { min: 1, max: 20, fallback: 10 }) };
     },
     async execute(args, ctx) {
@@ -248,34 +351,43 @@ const TOOLS = {
         })
         .sort((a, b) => docMillis(b, "date") - docMillis(a, "date"))
         .slice(0, args.limit)
-        .map((e) => ({
-          id: e.id,
-          title: truncate(e.title || "", 100),
-          type: e.type || null,
-          date: docMillis(e, "date") ? new Date(docMillis(e, "date")).toISOString().slice(0, 10) : null,
-          locationName: e.locationName || null,
-          tags: Array.isArray(e.tags) ? e.tags.slice(0, 10) : [],
-        }));
-      inRange.forEach((m) => ctx.registerRef("journey", m.id));
-      return { count: inRange.length, results: inRange };
+        .map((e) => {
+          const handle = ctx.registerRef("journey", e.id, e.title || "Untitled event");
+          return {
+            handle,
+            title: truncate(e.title || "", 100),
+            type: e.type || null,
+            date: docMillis(e, "date") ? localDateString(new Date(docMillis(e, "date")), ctx.timeZone) : null,
+            locationName: e.locationName || null,
+            tags: Array.isArray(e.tags) ? e.tags.slice(0, 10) : [],
+          };
+        });
+      return {
+        count: inRange.length,
+        resolvedRange: { startDate: args.startDate, endDate: args.endDate, timeZone: args.timeZone },
+        results: inRange,
+      };
     },
   },
 
   list_calendar: {
     scope: "calendar",
-    description: "Day-by-day activity summary (Memories + Journal only — never Finance) for the Owner within a required, tightly bounded date range (max 31 days).",
+    description:
+      "Activity calendar summary — day-by-day counts of when the Owner recorded/uploaded Memories and Journal entries (NOT a scheduling system; Finance is never included). " +
+      "Accepts either explicit startDate/endDate or a relativePeriod (e.g. \"this month\"). Range is bounded to 31 days.",
     parameters: {
       type: "object",
       properties: {
         startDate: { type: "string", description: "YYYY-MM-DD, inclusive." },
         endDate: { type: "string", description: "YYYY-MM-DD, inclusive." },
+        relativePeriod: { type: "string", enum: CALENDAR_RELATIVE_ENUM, description: RELATIVE_PERIOD_DESCRIPTION },
+        direction: { type: "string", enum: ["forward"], description: "Only with a bare month name: resolve to the next upcoming occurrence instead of the most recent past one." },
       },
-      required: ["startDate", "endDate"],
+      required: [],
       additionalProperties: false,
     },
-    validate(args) {
-      if (!(args && args.startDate && args.endDate)) throw new ToolValidationError("start_and_end_date_required");
-      return resolveDateRange(args, { maxDays: 31, defaultDays: 7 });
+    validate(args, ctx) {
+      return resolveRangeFromArgs(args, ctx, { maxDays: 31, defaultDays: 7, allowDefault: false, relativeEnumName: "relativePeriod" });
     },
     async execute(args, ctx) {
       const [photos, journals] = await Promise.all([
@@ -283,26 +395,48 @@ const TOOLS = {
         fetchOwnerJournals(ctx.db, ctx.uid),
       ]);
       const byDay = new Map();
-      const dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
-      const bump = (ms, type, id, title) => {
-        if (ms < args.start.getTime() || ms > args.end.getTime()) return;
+      // Bucketed by LOCAL calendar day (task B) — an item uploaded at, say, 2026-07-14T20:00Z is
+      // already 2026-07-15 04:00 in Asia/Kuala_Lumpur (UTC+8) and must land in the 15th's bucket,
+      // not the 14th's. A UTC-based bucket key would silently misfile anything uploaded in the
+      // local evening (UTC daytime), which is exactly the class of bug this whole pass targets.
+      const dayKey = (ms) => localDateString(new Date(ms), ctx.timeZone);
+      // Returns the handle if the item was actually included, or null if it fell outside the
+      // requested range — the caller must only treat a non-null return as "surfaced" (task D).
+      const bump = (ms, type, id, labelText) => {
+        if (ms < args.start.getTime() || ms > args.end.getTime()) return null;
         const key = dayKey(ms);
         if (!byDay.has(key)) byDay.set(key, { date: key, memories: 0, journal: 0, samples: [] });
         const bucket = byDay.get(key);
         bucket[type === "memory" ? "memories" : "journal"] += 1;
-        if (bucket.samples.length < 5) bucket.samples.push({ type, id, title: truncate(title || "", 60) });
+        const handle = ctx.registerRef(type, id, labelText);
+        if (bucket.samples.length < 5) bucket.samples.push({ type, handle, title: truncate(labelText || "", 60) });
+        return handle;
       };
-      photos.forEach((p) => { const ms = docMillis(p, "uploadedAt"); if (ms) { bump(ms, "memory", p.id, p.caption); ctx.registerRef("memory", p.id); } });
-      journals.forEach((j) => { const ms = docMillis(j, "createdAt"); if (ms) { bump(ms, "journal", j.id, j.title); ctx.registerRef("journal", j.id); } });
+      photos.forEach((p) => { const ms = docMillis(p, "uploadedAt"); if (ms) bump(ms, "memory", p.id, p.caption); });
+      journals.forEach((j) => { const ms = docMillis(j, "createdAt"); if (ms) bump(ms, "journal", j.id, j.title); });
+
       const days = Array.from(byDay.values()).sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 31);
-      return { count: days.length, days };
+      const totalItems = days.reduce((sum, d) => sum + d.memories + d.journal, 0);
+
+      return {
+        resolvedRange: { startDate: args.startDate, endDate: args.endDate, timeZone: args.timeZone },
+        includedSources: ["memories", "journals"],
+        timestampMeaning: { memories: "uploadedAt", journals: "createdAt" },
+        excludedSources: ["finance"],
+        // `activeDayCount` (days with at least one item) is deliberately separate from
+        // `totalItems` (every item across the whole range, even beyond the 5-per-day sample cap)
+        // — task C explicitly calls out that conflating the two produced misleading answers.
+        activeDayCount: days.length,
+        totalItems,
+        days,
+      };
     },
   },
 
   draft_reflection: {
     scope: null, // always available; never fetches new data
     description:
-      "Draft (never saves) a short reflection using ONLY items already surfaced earlier in this same conversation by another tool call. Provide the memory/journal/journey ids to draw from.",
+      "Draft (never saves) a short reflection using ONLY items already surfaced earlier in this same conversation by another tool call. Provide the opaque handle(s) from those earlier tool results — never invent an id.",
     parameters: {
       type: "object",
       properties: {
@@ -313,9 +447,9 @@ const TOOLS = {
             type: "object",
             properties: {
               type: { type: "string", enum: ["memory", "journal", "journey"] },
-              id: { type: "string" },
+              handle: { type: "string", description: "The opaque handle string from an earlier tool result — never a document ID." },
             },
-            required: ["type", "id"],
+            required: ["type", "handle"],
             additionalProperties: false,
           },
         },
@@ -329,19 +463,25 @@ const TOOLS = {
       if (!refs.length) throw new ToolValidationError("sourceRefs_required");
       if (refs.length > 10) throw new ToolValidationError("too_many_sourceRefs");
       const clean = refs.map((r) => {
-        if (!r || !["memory", "journal", "journey"].includes(r.type) || !isPlainString(r.id) || !r.id) {
+        if (!r || !["memory", "journal", "journey"].includes(r.type) || !isPlainString(r.handle) || !r.handle) {
           throw new ToolValidationError("invalid_sourceRef");
         }
-        return { type: r.type, id: r.id };
+        return { type: r.type, handle: r.handle };
       });
       const focus = args && args.focus ? truncate(String(args.focus), 200) : null;
       return { sourceRefs: clean, focus };
     },
-    // Deliberately does NOT re-query Firestore: only allowed to reference ids this same
-    // conversation turn already legitimately surfaced via ctx.registerRef(), closing off any
-    // attempt to use this tool as a side-channel to probe arbitrary document ids.
+    // Deliberately does NOT re-query Firestore and NEVER accepts a raw Firestore ID — only a
+    // handle this exact request already issued via ctx.registerRef() can resolve to anything,
+    // closing off any attempt to use this tool as a side-channel to probe arbitrary document ids
+    // (task E). ctx.resolveHandle() only ever knows about handles from the CURRENT request (a
+    // fresh registry is created per call to runAgentLoop — see qwen.js) — resolution can never
+    // succeed against a handle from a previous, different request.
     async execute(args, ctx) {
-      const approved = args.sourceRefs.filter((r) => ctx.wasRefSeen(r.type, r.id));
+      const approved = args.sourceRefs.filter((r) => {
+        const resolved = ctx.resolveHandle(r.handle);
+        return resolved && resolved.type === r.type;
+      });
       const rejected = args.sourceRefs.length - approved.length;
       return {
         note: "This is a draft only — nothing was saved. Review and save it yourself from the relevant page if you'd like to keep it.",
@@ -360,4 +500,11 @@ function toolDefsForScopes(scopes) {
     .map(([name, def]) => ({ type: "function", function: { name, description: def.description, parameters: def.parameters } }));
 }
 
-module.exports = { TOOLS, toolDefsForScopes, ToolValidationError, MAX_TEXT_QUERY_LEN };
+module.exports = {
+  TOOLS,
+  toolDefsForScopes,
+  ToolValidationError,
+  MAX_TEXT_QUERY_LEN,
+  DEFAULT_TIME_ZONE,
+  fetchOwnerActivePhotos, // exported for direct ownership-merge/trash-exclusion tests
+};

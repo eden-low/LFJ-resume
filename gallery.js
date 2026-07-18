@@ -169,6 +169,8 @@ function postCard(post) {
 
   const card = document.createElement("article");
   card.className = "is-visible relative bg-cardBg/90 backdrop-blur-sm rounded-2xl neon-border-purple overflow-hidden";
+  card.dataset.postId = post.id; // used by maybeFocusPostFromQuery() to deep-link from the Atlas Assistant's source chips
+  card.tabIndex = -1; // programmatically focusable (for the deep-link highlight) without joining the normal Tab order
   card.innerHTML = `
     ${isMine && selectMode ? `
       <label class="absolute top-3 left-3 z-10 w-6 h-6 rounded-md bg-darkBg/80 border border-borderNeon flex items-center justify-center cursor-pointer">
@@ -450,13 +452,55 @@ function maybeAutoOpenFromQuickAdd(mayParticipate) {
   }
 }
 
-onAuthStateChanged(auth, (user) => {
+// Deep-link support (task G): gallery.html?memory=<id> — from the Atlas Assistant's source
+// chips (assistant.js), mirroring atlas.js's pre-existing ?memory= deep link for the map. The
+// query param is never trusted as authorization by itself: it's only ever resolved against
+// `cachedPosts`, which fetchVisiblePosts() already built from Firestore-scoped queries (the
+// signed-in user's own docs + public docs — the exact same access boundary every other feature
+// on this page already relies on). An id that's missing, belongs to someone else's private
+// content, or doesn't resolve at all simply isn't found — no error, no way to tell from the
+// outside whether it exists (fail safely). The param is always stripped via history.replaceState
+// (no new history entry) whether or not it resolved, so a refresh/Back never re-triggers it.
+function maybeFocusPostFromQuery() {
+  const params = new URLSearchParams(location.search);
+  const targetId = params.get("memory");
+  if (!targetId) return;
+  params.delete("memory");
+  const qs = params.toString();
+  history.replaceState(null, "", location.pathname + (qs ? `?${qs}` : "") + location.hash);
+
+  const post = cachedPosts.find((p) => p.id === targetId);
+  if (!post) return;
+
+  // The matching card might not be in the DOM yet if a different filter tab is currently active
+  // (renderFeed() only renders the active tab's subset) — switch to "All" so it's guaranteed to
+  // render before we try to find/focus it.
+  const stillVisible =
+    activeFilter === "all" ||
+    (activeFilter === "featured" && post.featured) ||
+    activeFilter === post.visibility ||
+    activeFilter === albumOf(post);
+  if (!stillVisible) setActiveTab("all");
+
+  requestAnimationFrame(() => {
+    const card = feedContainer.querySelector(`[data-post-id="${CSS.escape(targetId)}"]`);
+    if (!card) return;
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    card.setAttribute("aria-label", `${post.caption || i18nT("common.untitled")} — ${i18nT("assistant.opened_from_assistant") !== "assistant.opened_from_assistant" ? i18nT("assistant.opened_from_assistant") : "opened from Atlas Assistant"}`);
+    card.classList.add("eden-deep-link-highlight");
+    card.focus({ preventScroll: true });
+    setTimeout(() => card.classList.remove("eden-deep-link-highlight"), 2500);
+  });
+}
+
+onAuthStateChanged(auth, async (user) => {
   if (user) {
     renderSignedIn(user);
   } else {
     renderSignedOut();
   }
-  fetchVisiblePosts();
+  await fetchVisiblePosts();
+  maybeFocusPostFromQuery();
 });
 
 function openModal() {

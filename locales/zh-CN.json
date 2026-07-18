@@ -736,6 +736,8 @@
     "disclaimer": "AI 可能会出错，重要内容请自行核实。",
     "clear_conversation": "清除对话",
     "copy_response": "复制回复",
+    "open_source": "打开",
+    "opened_from_assistant": "由地图集助手打开",
     "retry": "重试",
     "cancelled": "已取消。",
     "thinking": "思考中…",

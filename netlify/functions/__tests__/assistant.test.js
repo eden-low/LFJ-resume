@@ -18,6 +18,7 @@ const { TOOLS, toolDefsForScopes, ToolValidationError } = require("../lib/tools.
 const { runAgentLoop, callQwenChatCompletions, QwenError } = require("../lib/qwen.js");
 const { checkBurst, checkAndIncrementDailyUsage, _resetBurstStateForTests } = require("../lib/rate-limit.js");
 const { FirebaseConfigError, parseServiceAccount, initializeFirebaseAdmin } = require("../lib/firebase-admin.js");
+const dateUtils = require("../lib/date-utils.js");
 
 let pass = 0;
 let fail = 0;
@@ -120,10 +121,28 @@ const SEED = {
     { id: "p3", data: { uid: OWNER_UID, caption: "Trashed photo, should never appear", deletedAt: { toMillis: () => 3000 }, uploadedAt: { toMillis: () => 3000 } } },
     { id: "p4", data: { uid: OTHER_UID, caption: "Someone else's Kampar photo", tags: ["kampar"], uploadedAt: { toMillis: () => 4000 } } },
     { id: "p5", data: { uid: OWNER_UID, caption: "Has a storage url + exact coords", url: "https://storage.example/secret-token", storagePath: "gallery/owner/private/x.jpg", latitude: 1.1, longitude: 2.2, uploadedAt: { toMillis: () => 5000 } } },
+    // Date-correctness fixtures (fixed "now" for this whole suite is 2026-07-18T12:00:00Z — see
+    // baseDeps()). p6/p7/p8 exist specifically so a "this month"/"June" resolution can be proven
+    // to land on the RIGHT year's data, not just accept whatever range was computed.
+    { id: "p6", data: { uid: OWNER_UID, caption: "July 2026 memory", tags: [], uploadedAt: { toMillis: () => Date.parse("2026-07-15T04:00:00Z") } } },
+    { id: "p7", data: { uid: OWNER_UID, caption: "June 2026 memory", tags: [], uploadedAt: { toMillis: () => Date.parse("2026-06-10T04:00:00Z") } } },
+    { id: "p8", data: { uid: OWNER_UID, caption: "June 2024 memory — must NOT appear for a bare 'June' query", tags: [], uploadedAt: { toMillis: () => Date.parse("2024-06-10T04:00:00Z") } } },
+    // Legacy ownership: no `uid` field at all, only the pre-uid `uploadedBy` field — proves the
+    // ownership-merge fix (task D), not just that a doc carrying both fields gets deduped.
+    { id: "p9", data: { uploadedBy: OWNER_UID, caption: "Legacy memory, uploadedBy only", tags: [], uploadedAt: { toMillis: () => Date.parse("2026-07-10T04:00:00Z") } } },
+    // A second item on the SAME calendar day as p6 (2026-07-15) — needed so a day-count vs.
+    // item-count test can actually distinguish activeDayCount from totalItems; without this,
+    // both numbers would coincidentally be equal and the test would pass even if the two were
+    // silently conflated back into one field.
+    { id: "p10", data: { uid: OWNER_UID, caption: "Second July 2026 memory, same day as p6", tags: [], uploadedAt: { toMillis: () => Date.parse("2026-07-15T09:00:00Z") } } },
+    // 2026-07-14T20:00:00Z is 2026-07-15T04:00 in Asia/Kuala_Lumpur (UTC+8) — already the NEXT
+    // local day. A UTC-based day-bucketing bug would file this under "2026-07-14".
+    { id: "p11", data: { uid: OWNER_UID, caption: "Uploaded late UTC evening, already next day in KL", tags: [], uploadedAt: { toMillis: () => Date.parse("2026-07-14T20:00:00Z") } } },
   ],
   journals: [
     { id: "j1", data: { uid: OWNER_UID, title: "Kampar trip notes", content: "Long entry about Kampar and food.", tags: ["kampar"], mood: "happy", createdAt: { toMillis: () => 1000 } } },
     { id: "j2", data: { uid: OTHER_UID, title: "Not yours", content: "private", createdAt: { toMillis: () => 2000 } } },
+    { id: "j3", data: { uid: OWNER_UID, title: "July 2026 journal", content: "Written in July 2026.", tags: [], createdAt: { toMillis: () => Date.parse("2026-07-07T04:00:00Z") } } },
   ],
   life_events: [
     { id: "e1", data: { uid: OWNER_UID, title: "Moved to Kampar", type: "milestone", date: { toMillis: () => Date.parse("2026-01-15") }, tags: [] } },
@@ -132,11 +151,18 @@ const SEED = {
   ai_usage: {},
 };
 
+// Every date-correctness test in this suite anchors to this exact fixed instant — 2026-07-18
+// 20:00 in Asia/Kuala_Lumpur (UTC+8), i.e. still 2026-07-18 local, matching the production
+// scenario this pass fixes. Never `new Date()` — a real clock read here would make these tests
+// non-deterministic and eventually silently stop testing the actual reported bug.
+const FIXED_NOW = new Date("2026-07-18T12:00:00.000Z");
+const TIME_ZONE = "Asia/Kuala_Lumpur";
+
 function baseDeps(overrides = {}) {
   const db = makeMockDb(SEED);
   return {
     env: baseEnv(),
-    now: () => new Date("2026-07-18T12:00:00.000Z"),
+    now: () => FIXED_NOW,
     // Real production wiring calls getApp() here (see lib/firebase-admin.js); the mock default
     // simulates a healthy, already-initialized Admin app — tests that want to exercise a
     // json_parse/credential_validation/admin_initialization failure override this directly with
@@ -687,6 +713,73 @@ async function run() {
     assert.strictEqual(res.status, 500);
   });
 
+  console.log("\nSafe output rendering (task F) — mirrors assistant.js's stripInlineMarkdown");
+
+  // Duplicated verbatim from assistant.js (documented there, per this repo's own established
+  // per-file convention — see withOneRetryOn401 above) — a pure, DOM-free text transform, so its
+  // HTML-safety property is unit-testable without a browser: it must never treat "<"/">" as
+  // anything but literal characters, since the REAL code only ever assigns its output to
+  // `.textContent` (verified separately by the static grep below), never innerHTML.
+  function stripInlineMarkdown(str) {
+    return String(str || "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/(^|[\s(])\*([^\s*][^*]*?)\*(?=[\s).,!?;:]|$)/g, "$1$2")
+      .replace(/(^|[\s(])_([^\s_][^_]*?)_(?=[\s).,!?;:]|$)/g, "$1$2");
+  }
+
+  await test("stripInlineMarkdown removes **bold**/*italic*/`code` delimiters, keeping the inner text", async () => {
+    assert.strictEqual(stripInlineMarkdown("This is **bold** and *italic* and `code`."), "This is bold and italic and code.");
+  });
+
+  await test("stripInlineMarkdown treats HTML/script-looking text as inert literal characters — never strips or interprets < >", async () => {
+    const malicious = "<img src=x onerror=alert(1)> and <script>alert(document.cookie)</script>";
+    const result = stripInlineMarkdown(malicious);
+    // The function must be a no-op on angle brackets — this is what proves the eventual
+    // `.textContent = result` assignment in the real code can only ever render this as visible
+    // literal text, never parse it as markup (textContent never interprets its string argument
+    // as HTML, regardless of content — this assertion just confirms nothing upstream of that
+    // assignment silently helps the payload along, e.g. by "cleaning up" the tag text).
+    assert.ok(result.includes("<img"));
+    assert.ok(result.includes("<script>"));
+    assert.ok(result.includes("</script>"));
+  });
+
+  await test("static check: assistant.js (frontend) never assigns model-derived content to innerHTML/insertAdjacentHTML", async () => {
+    const root = path.resolve(__dirname, "..", "..", "..");
+    const src = fs.readFileSync(path.join(root, "assistant.js"), "utf8");
+    // Excludes comments (this file's own header explains the innerHTML ban in prose, which would
+    // otherwise trip a naive substring search) — mirrors the firebase-admin legacy-API guard's
+    // comment-stripping approach elsewhere in this suite.
+    const stripped = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    assert.ok(!/\.innerHTML\s*=/.test(stripped), "assistant.js must never assign to .innerHTML");
+    assert.ok(!/insertAdjacentHTML/.test(stripped), "assistant.js must never use insertAdjacentHTML");
+  });
+
+  await test("static check: assistant.js source-chip links point at gallery.html?memory=/journal.html?entry=/timeline.html?event=", async () => {
+    const root = path.resolve(__dirname, "..", "..", "..");
+    const src = fs.readFileSync(path.join(root, "assistant.js"), "utf8");
+    assert.ok(/SOURCE_QUERY_PARAM\s*=\s*\{\s*memory:\s*"memory",\s*journal:\s*"entry",\s*journey:\s*"event"\s*\}/.test(src));
+  });
+
+  console.log("\nSource navigation deep links (task G) — gallery.js/journal.js/timeline.js");
+
+  await test("static check: gallery.js/journal.js/timeline.js each resolve their deep-link query param only against already-fetched, uid/rules-scoped cached data", async () => {
+    const root = path.resolve(__dirname, "..", "..", "..");
+    const cases = [
+      { file: "gallery.js", param: "memory", cacheVar: "cachedPosts" },
+      { file: "journal.js", param: "entry", cacheVar: "cachedEntries" },
+      { file: "timeline.js", param: "event", cacheVar: "cachedEvents" },
+    ];
+    for (const { file, param, cacheVar } of cases) {
+      const src = fs.readFileSync(path.join(root, file), "utf8");
+      assert.ok(src.includes(`params.get("${param}")`), `${file} must read the ?${param}= query param`);
+      assert.ok(src.includes(`${cacheVar}.find(`), `${file} must resolve the id via ${cacheVar}, not a fresh/unscoped query`);
+      assert.ok(src.includes("history.replaceState("), `${file} must strip the query param via replaceState`);
+    }
+  });
+
   console.log("\nSecret hygiene");
 
   await test("the Qwen API key never appears in a response body, success or error paths", async () => {
@@ -824,9 +917,38 @@ async function run() {
   // ================= Tool allowlist =================
   console.log("\nTool allowlist (lib/tools.js)");
 
-  function makeCtx(db) {
-    const seen = new Set();
-    return { db, uid: OWNER_UID, registerRef: (t, id) => seen.add(`${t}:${id}`), wasRefSeen: (t, id) => seen.has(`${t}:${id}`), _seen: seen };
+  // New handle-based ctx (task E): registerRef(type, id, label) returns an opaque handle and
+  // records it in a per-call registry; resolveHandle(handle) only ever knows about handles THIS
+  // ctx issued. `now`/`timeZone` default to the suite's fixed clock unless a test overrides them
+  // (the date-resolution tests below do, to exercise other calendar scenarios).
+  function makeCtx(db, overrides = {}) {
+    const byHandle = new Map();
+    let counter = 0;
+    return {
+      db,
+      uid: OWNER_UID,
+      now: FIXED_NOW,
+      timeZone: TIME_ZONE,
+      registerRef: (type, id, label) => {
+        counter += 1;
+        const handle = `h${counter}`;
+        byHandle.set(handle, { type, id });
+        return handle;
+      },
+      resolveHandle: (handle) => byHandle.get(handle) || null,
+      ...overrides,
+    };
+  }
+
+  function resultIds(result, ctx) {
+    // Test-only helper: resolves each result's opaque `handle` back to a real id via the SAME
+    // ctx that issued it — exactly what a legitimate caller (draft_reflection, or the frontend's
+    // `sources` array via qwen.js) is allowed to do, and exactly what the model itself can NOT
+    // do (the model never has access to ctx, only to the handle strings in a tool's JSON output).
+    return result.results.map((r) => {
+      const resolved = ctx.resolveHandle(r.handle);
+      return resolved ? resolved.id : null;
+    });
   }
 
   await test("search_memories: only the Owner's own, active (non-trashed) Memories match", async () => {
@@ -834,13 +956,13 @@ async function run() {
     const ctx = makeCtx(db);
     const args = TOOLS.search_memories.validate({ query: "kampar" });
     const result = await TOOLS.search_memories.execute(args, ctx);
-    const ids = result.results.map((r) => r.id);
+    const ids = resultIds(result, ctx);
     assert.ok(ids.includes("p1"));
     assert.ok(!ids.includes("p3"), "trashed content must be excluded");
     assert.ok(!ids.includes("p4"), "other users' content must be excluded");
   });
 
-  await test("search_memories: never returns url, storagePath, or exact coordinates", async () => {
+  await test("search_memories: never returns url, storagePath, exact coordinates, OR a raw Firestore id — only an opaque handle", async () => {
     const db = makeMockDb(SEED);
     const ctx = makeCtx(db);
     const args = TOOLS.search_memories.validate({ query: "storage" });
@@ -848,9 +970,12 @@ async function run() {
     const json = JSON.stringify(result);
     assert.ok(!json.includes("storage.example"), "must not leak a Storage download URL");
     assert.ok(!/"latitude"|"longitude"/.test(json), "must not leak exact coordinates");
+    assert.ok(!json.includes("p5"), "the real Firestore id of the matched doc must never appear in the model-visible result");
     result.results.forEach((r) => {
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(r, "id"), false, "must never carry a raw `id` field");
       assert.strictEqual(Object.prototype.hasOwnProperty.call(r, "url"), false);
       assert.strictEqual(Object.prototype.hasOwnProperty.call(r, "storagePath"), false);
+      assert.strictEqual(typeof r.handle, "string");
     });
   });
 
@@ -859,73 +984,292 @@ async function run() {
     const ctx = makeCtx(db);
     const args = TOOLS.find_memories_missing_location.validate({});
     const result = await TOOLS.find_memories_missing_location.execute(args, ctx);
-    const ids = result.results.map((r) => r.id);
+    const ids = resultIds(result, ctx);
     assert.ok(ids.includes("p2"));
     assert.ok(!ids.includes("p1"), "p1 has confirmed coordinates and must not be listed as missing");
     assert.ok(!ids.includes("p3"), "trashed content must be excluded");
     assert.ok(!ids.includes("p4"), "other users' content must be excluded");
   });
 
-  await test("search_journals: excludes other users' entries and never returns imageUrl", async () => {
+  await test("search_journals: excludes other users' entries and never returns imageUrl or a raw id", async () => {
     const db = makeMockDb(SEED);
     const ctx = makeCtx(db);
     const args = TOOLS.search_journals.validate({ query: "kampar" });
     const result = await TOOLS.search_journals.execute(args, ctx);
-    const ids = result.results.map((r) => r.id);
+    const ids = resultIds(result, ctx);
     assert.ok(ids.includes("j1"));
     assert.ok(!ids.includes("j2"), "other users' journals must be excluded");
     const json = JSON.stringify(result);
     assert.ok(!json.includes("imageUrl"));
+    assert.ok(!json.includes("j1"), "the real Firestore id must never appear in the model-visible result");
   });
+
+  await test("Memory ownership merge: a legacy uploadedBy-only doc (no uid field) is still found, deduped, and trash still excluded", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    const args = TOOLS.find_memories_missing_location.validate({ limit: 20 });
+    const result = await TOOLS.find_memories_missing_location.execute(args, ctx);
+    const ids = resultIds(result, ctx);
+    assert.ok(ids.includes("p9"), "a legacy uploadedBy-only Memory must still be found");
+    // Every id appears at most once even though fetchOwnerActivePhotos runs two queries
+    // (uid and uploadedBy) that could both match the same doc in principle.
+    assert.strictEqual(new Set(ids).size, ids.length, "must be deduped by document id");
+  });
+
+  console.log("\nDate resolution (this pass's core fix — see lib/date-utils.js)");
+
+  await test("list_calendar relativePeriod=this_month resolves to July 2026 (the actual production bug)", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    const args = TOOLS.list_calendar.validate({ relativePeriod: "this_month" }, ctx);
+    assert.strictEqual(args.start.toISOString().slice(0, 10) <= "2026-07-01", true);
+    const result = await TOOLS.list_calendar.execute(args, ctx);
+    assert.strictEqual(result.resolvedRange.startDate, "2026-07-01");
+    assert.strictEqual(result.resolvedRange.endDate, "2026-07-31");
+    assert.strictEqual(result.resolvedRange.timeZone, TIME_ZONE);
+    const surfacedIds = result.days.flatMap((d) => d.samples.map((s) => ctx.resolveHandle(s.handle)?.id));
+    assert.ok(surfacedIds.includes("p6"), "the July 2026 memory must be included");
+    assert.ok(surfacedIds.includes("j3"), "the July 2026 journal must be included");
+    assert.ok(!surfacedIds.includes("p8"), "June 2024 data must never leak into a 'this month' (July 2026) result");
+  });
+
+  await test("list_calendar relativePeriod=june (bare month, no year) resolves to June 2026, not June 2024 or any other year", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    const args = TOOLS.list_calendar.validate({ relativePeriod: "june" }, ctx);
+    const result = await TOOLS.list_calendar.execute(args, ctx);
+    assert.strictEqual(result.resolvedRange.startDate, "2026-06-01");
+    assert.strictEqual(result.resolvedRange.endDate, "2026-06-30");
+    const surfacedIds = result.days.flatMap((d) => d.samples.map((s) => ctx.resolveHandle(s.handle)?.id));
+    assert.ok(surfacedIds.includes("p7"), "the June 2026 memory must be included");
+    assert.ok(!surfacedIds.includes("p8"), "the June 2024 memory must NOT be included for a bare 'June'");
+  });
+
+  await test("explicit startDate/endDate for June 2024 still returns June 2024 data — explicit dates always win", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    const args = TOOLS.list_calendar.validate({ startDate: "2024-06-01", endDate: "2024-06-30" }, ctx);
+    const result = await TOOLS.list_calendar.execute(args, ctx);
+    assert.strictEqual(result.resolvedRange.startDate, "2024-06-01");
+    assert.strictEqual(result.resolvedRange.endDate, "2024-06-30");
+    const surfacedIds = result.days.flatMap((d) => d.samples.map((s) => ctx.resolveHandle(s.handle)?.id));
+    assert.ok(surfacedIds.includes("p8"), "an explicit June 2024 request must still surface June 2024 data");
+  });
+
+  await test("explicit dates win even when a (contradictory) relativePeriod is also supplied", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    const args = TOOLS.list_calendar.validate({ startDate: "2024-06-01", endDate: "2024-06-30", relativePeriod: "this_month" }, ctx);
+    assert.strictEqual(args.start.toISOString().slice(0, 10), "2024-05-31"); // 2024-06-01 local KL midnight, in UTC
+    const result = await TOOLS.list_calendar.execute(args, ctx);
+    assert.strictEqual(result.resolvedRange.startDate, "2024-06-01");
+  });
+
+  await test("last_month from 2026-07-18 resolves to June 2026", async () => {
+    const args = dateUtils.resolveRelativePeriod("last_month", { now: FIXED_NOW, timeZone: TIME_ZONE });
+    assert.strictEqual(args.startDate, "2026-06-01");
+    assert.strictEqual(args.endDate, "2026-06-30");
+  });
+
+  await test("December/January year rollover: last_month from January resolves to December of the PREVIOUS year", async () => {
+    const nowJan = new Date("2026-01-05T04:00:00Z");
+    const args = dateUtils.resolveRelativePeriod("last_month", { now: nowJan, timeZone: TIME_ZONE });
+    assert.strictEqual(args.startDate, "2025-12-01");
+    assert.strictEqual(args.endDate, "2025-12-31");
+  });
+
+  await test("December/January year rollover: next_month from December resolves to January of the NEXT year", async () => {
+    const nowDec = new Date("2026-12-20T04:00:00Z");
+    const args = dateUtils.resolveRelativePeriod("next_month", { now: nowDec, timeZone: TIME_ZONE });
+    assert.strictEqual(args.startDate, "2027-01-01");
+    assert.strictEqual(args.endDate, "2027-01-31");
+  });
+
+  await test("leap-year February has 29 days, non-leap-year February has 28", async () => {
+    assert.strictEqual(dateUtils.daysInMonth(2028, 2), 29);
+    assert.strictEqual(dateUtils.daysInMonth(2026, 2), 28);
+    const leap = dateUtils.resolveRelativePeriod("february", { now: new Date("2028-03-01T04:00:00Z"), timeZone: TIME_ZONE });
+    assert.strictEqual(leap.endDate, "2028-02-29");
+  });
+
+  await test("a bare month name with direction=forward resolves to the NEXT occurrence, not the most recent past one", async () => {
+    // From 2026-07-18: "December" alone -> most recent past December (2025-12); "next December"
+    // (direction=forward) -> the upcoming one this year (2026-12).
+    const past = dateUtils.resolveRelativePeriod("december", { now: FIXED_NOW, timeZone: TIME_ZONE });
+    assert.strictEqual(past.startDate, "2025-12-01");
+    const forward = dateUtils.resolveRelativePeriod("december", { now: FIXED_NOW, timeZone: TIME_ZONE, direction: "forward" });
+    assert.strictEqual(forward.startDate, "2026-12-01");
+  });
+
+  await test("UTC midnight vs Malaysia local date: an instant just before UTC midnight is already the next LOCAL day in Asia/Kuala_Lumpur (UTC+8)", async () => {
+    // 2026-07-17T23:30:00Z is 2026-07-18T07:30 in Kuala Lumpur — a naive UTC-date read would say
+    // "17th," which is exactly the class of off-by-one this task's date handling must avoid.
+    const utcLateJuly17 = new Date("2026-07-17T23:30:00Z");
+    assert.strictEqual(dateUtils.localDateString(utcLateJuly17, TIME_ZONE), "2026-07-18");
+    const utcNoonJuly18 = new Date("2026-07-18T12:00:00Z"); // 2026-07-18T20:00 in KL — still the 18th
+    assert.strictEqual(dateUtils.localDateString(utcNoonJuly18, TIME_ZONE), "2026-07-18");
+  });
+
+  await test("an unrecognized relativePeriod is rejected, not silently defaulted", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    assert.throws(() => TOOLS.list_calendar.validate({ relativePeriod: "not_a_real_period" }, ctx), ToolValidationError);
+  });
+
+  await test("list_calendar buckets an item by its LOCAL calendar day, not its UTC calendar day", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    // p11 is stored at 2026-07-14T20:00:00Z, which is already 2026-07-15 04:00 in Kuala Lumpur.
+    const args = TOOLS.list_calendar.validate({ startDate: "2026-07-14", endDate: "2026-07-15" }, ctx);
+    const result = await TOOLS.list_calendar.execute(args, ctx);
+    const day14 = result.days.find((d) => d.date === "2026-07-14");
+    const day15 = result.days.find((d) => d.date === "2026-07-15");
+    const p11OnDay15 = !!(day15 && day15.samples.some((s) => ctx.resolveHandle(s.handle)?.id === "p11"));
+    const p11OnDay14 = !!(day14 && day14.samples.some((s) => ctx.resolveHandle(s.handle)?.id === "p11"));
+    assert.strictEqual(p11OnDay15, true, "a UTC-evening upload must be bucketed under its Malaysia LOCAL day (the 15th)");
+    assert.strictEqual(p11OnDay14, false);
+  });
+
+  console.log("\nlist_journey");
 
   await test("list_journey: bounded date range excludes events outside it", async () => {
     const db = makeMockDb(SEED);
     const ctx = makeCtx(db);
-    const args = TOOLS.list_journey.validate({ startDate: "2026-01-01", endDate: "2026-02-01" });
+    const args = TOOLS.list_journey.validate({ startDate: "2026-01-01", endDate: "2026-02-01" }, ctx);
     const result = await TOOLS.list_journey.execute(args, ctx);
-    const ids = result.results.map((r) => r.id);
+    const ids = resultIds(result, ctx);
     assert.ok(ids.includes("e1"));
     assert.ok(!ids.includes("e2"), "event far outside the requested range must be excluded");
+    assert.strictEqual(result.resolvedRange.startDate, "2026-01-01");
   });
 
   await test("list_journey: a date range over 366 days is rejected", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
     assert.throws(
-      () => TOOLS.list_journey.validate({ startDate: "2020-01-01", endDate: "2026-01-01" }),
+      () => TOOLS.list_journey.validate({ startDate: "2020-01-01", endDate: "2026-01-01" }, ctx),
       ToolValidationError
     );
   });
 
-  await test("list_calendar: requires both startDate and endDate, rejects a range over 31 days", async () => {
-    assert.throws(() => TOOLS.list_calendar.validate({ startDate: "2026-01-01" }), ToolValidationError);
-    assert.throws(() => TOOLS.list_calendar.validate({ startDate: "2026-01-01", endDate: "2026-06-01" }), ToolValidationError);
-    const args = TOOLS.list_calendar.validate({ startDate: "2026-07-01", endDate: "2026-07-18" });
+  await test("list_journey: relativePeriod=this_year also works (year-granularity is allowed for Journey, not Calendar)", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    const args = TOOLS.list_journey.validate({ relativePeriod: "this_year" }, ctx);
+    assert.strictEqual(args.resolvedFrom, "relative");
+    assert.strictEqual(args.start.getUTCFullYear() <= 2026, true);
+  });
+
+  console.log("\nlist_calendar");
+
+  await test("list_calendar: rejects a range over 31 days; accepts a valid explicit range", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    assert.throws(() => TOOLS.list_calendar.validate({ startDate: "2026-01-01" }, ctx), ToolValidationError);
+    assert.throws(() => TOOLS.list_calendar.validate({ startDate: "2026-01-01", endDate: "2026-06-01" }, ctx), ToolValidationError);
+    const args = TOOLS.list_calendar.validate({ startDate: "2026-07-01", endDate: "2026-07-18" }, ctx);
     assert.ok(args.start instanceof Date && args.end instanceof Date);
   });
 
-  await test("list_calendar: never touches expenses (Finance) — result contains no expense fields", async () => {
+  await test("list_calendar: never touches expenses (Finance) — result contains no expense fields, and says so explicitly", async () => {
     const db = makeMockDb(SEED);
     const ctx = makeCtx(db);
-    const args = TOOLS.list_calendar.validate({ startDate: "2026-01-01", endDate: "2026-01-01" });
+    const args = TOOLS.list_calendar.validate({ startDate: "2026-01-01", endDate: "2026-01-01" }, ctx);
     const result = await TOOLS.list_calendar.execute(args, ctx);
     const json = JSON.stringify(result);
     assert.ok(!/amount|expense/i.test(json));
+    assert.deepStrictEqual(result.excludedSources, ["finance"]);
   });
 
-  await test("draft_reflection: only approves sourceRefs already surfaced this turn (no id-probing side channel)", async () => {
+  await test("list_calendar: declares calendar semantics — includedSources, timestampMeaning, excludedSources", async () => {
     const db = makeMockDb(SEED);
     const ctx = makeCtx(db);
-    ctx.registerRef("memory", "p1");
-    const args = TOOLS.draft_reflection.validate({ sourceRefs: [{ type: "memory", id: "p1" }, { type: "memory", id: "not-surfaced-id" }] });
+    const args = TOOLS.list_calendar.validate({ relativePeriod: "this_month" }, ctx);
+    const result = await TOOLS.list_calendar.execute(args, ctx);
+    assert.deepStrictEqual(result.includedSources, ["memories", "journals"]);
+    assert.deepStrictEqual(result.timestampMeaning, { memories: "uploadedAt", journals: "createdAt" });
+    assert.deepStrictEqual(result.excludedSources, ["finance"]);
+  });
+
+  await test("list_calendar: totalItems counts every item in range, separately from activeDayCount (days with >=1 item)", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    // p6 (memory) and j3 (journal) both fall on different July 2026 days within this range.
+    const args = TOOLS.list_calendar.validate({ startDate: "2026-07-01", endDate: "2026-07-31" }, ctx);
+    const result = await TOOLS.list_calendar.execute(args, ctx);
+    assert.strictEqual(result.totalItems, result.days.reduce((s, d) => s + d.memories + d.journal, 0));
+    assert.notStrictEqual(result.totalItems, result.activeDayCount, "this fixture deliberately has items spread across distinct days so the two numbers differ and a test that only checked one of them would miss a regression");
+  });
+
+  await test("list_calendar: out-of-range documents are fetched (for correctness) but NEVER registered as surfaced sources — the exact original bug", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    // A narrow one-day range that excludes p6/p7/p8/j1/j3 etc — only whatever falls on this
+    // exact day may ever be registered.
+    const args = TOOLS.list_calendar.validate({ startDate: "2026-07-15", endDate: "2026-07-15" }, ctx);
+    const result = await TOOLS.list_calendar.execute(args, ctx);
+    const surfacedInHandles = new Set(result.days.flatMap((d) => d.samples.map((s) => s.handle)));
+    // Resolve every handle this ctx has EVER issued (registerRef was called during this single
+    // execute() call) and confirm none of them corresponds to a doc outside 2026-07-15.
+    for (const handle of surfacedInHandles) {
+      const resolved = ctx.resolveHandle(handle);
+      assert.ok(resolved, "every sample handle must resolve");
+    }
+    // p7 (June 2026) and p8 (June 2024) must never have been registered at all for this range —
+    // proven by the fact draft_reflection would reject a handle for them, since no handle for
+    // p7/p8 exists in this ctx's registry (nothing outside 2026-07-15 was ever registered).
+    const anyHandleResolvesToP7OrP8 = [...surfacedInHandles].some((h) => {
+      const r = ctx.resolveHandle(h);
+      return r && (r.id === "p7" || r.id === "p8");
+    });
+    assert.strictEqual(anyHandleResolvesToP7OrP8, false);
+  });
+
+  console.log("\ndraft_reflection (opaque handles, task E)");
+
+  await test("draft_reflection: only approves sourceRefs whose handle was actually surfaced this turn (no id-probing side channel)", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    const handle = ctx.registerRef("memory", "p1", "Kampar riverside walk");
+    const args = TOOLS.draft_reflection.validate({ sourceRefs: [{ type: "memory", handle }, { type: "memory", handle: "h999-never-issued" }] });
     const result = await TOOLS.draft_reflection.execute(args, ctx);
     assert.strictEqual(result.approvedSourceCount, 1);
     assert.strictEqual(result.rejectedSourceCount, 1);
   });
 
+  await test("draft_reflection: rejects a raw Firestore id passed as if it were a handle", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    ctx.registerRef("memory", "p1", "Kampar riverside walk"); // issues h1, NOT "p1"
+    const args = TOOLS.draft_reflection.validate({ sourceRefs: [{ type: "memory", handle: "p1" }] }); // the model tries the raw id directly
+    const result = await TOOLS.draft_reflection.execute(args, ctx);
+    assert.strictEqual(result.approvedSourceCount, 0, "a raw Firestore id is never a valid handle, even if it happens to match a real document");
+  });
+
+  await test("draft_reflection: a handle issued by a DIFFERENT ctx (a different request) never resolves — opaque references are request-scoped", async () => {
+    const db = makeMockDb(SEED);
+    const ctxA = makeCtx(db);
+    const handleFromRequestA = ctxA.registerRef("memory", "p1", "Kampar riverside walk");
+    const ctxB = makeCtx(db); // simulates a brand-new HTTP request — fresh registry, per runAgentLoop()
+    const args = TOOLS.draft_reflection.validate({ sourceRefs: [{ type: "memory", handle: handleFromRequestA }] });
+    const result = await TOOLS.draft_reflection.execute(args, ctxB);
+    assert.strictEqual(result.approvedSourceCount, 0, "a handle from a previous request must never resolve against a new request's registry");
+  });
+
+  await test("draft_reflection: a handle registered for a DIFFERENT type is rejected even if the handle string matches", async () => {
+    const db = makeMockDb(SEED);
+    const ctx = makeCtx(db);
+    const handle = ctx.registerRef("memory", "p1", "Kampar riverside walk");
+    const args = TOOLS.draft_reflection.validate({ sourceRefs: [{ type: "journal", handle }] }); // wrong type for this handle
+    const result = await TOOLS.draft_reflection.execute(args, ctx);
+    assert.strictEqual(result.approvedSourceCount, 0);
+  });
+
   await test("draft_reflection never queries Firestore (db is never touched)", async () => {
     let touched = false;
     const proxyDb = new Proxy({}, { get: () => { touched = true; return () => {}; } });
-    const ctx = { db: proxyDb, uid: OWNER_UID, registerRef: () => {}, wasRefSeen: () => true };
-    const args = TOOLS.draft_reflection.validate({ sourceRefs: [{ type: "memory", id: "p1" }] });
+    const ctx = { db: proxyDb, uid: OWNER_UID, registerRef: () => "h1", resolveHandle: () => ({ type: "memory", id: "p1" }) };
+    const args = TOOLS.draft_reflection.validate({ sourceRefs: [{ type: "memory", handle: "h1" }] });
     await TOOLS.draft_reflection.execute(args, ctx);
     assert.strictEqual(touched, false);
   });
@@ -946,7 +1290,8 @@ async function run() {
     const result = await TOOLS.search_memories.execute(validated, ctx);
     // Still only the Owner's own photos collection was ever touched — proven by the fact other
     // users' docs (p4) never leak in, even though `uid: OTHER_UID` was present in the raw args.
-    assert.ok(!result.results.some((r) => r.id === "p4"));
+    const ids = resultIds(result, ctx);
+    assert.ok(!ids.includes("p4"));
   });
 
   await test("toolDefsForScopes: only exposes tools whose scope is enabled (plus draft_reflection, always on)", async () => {
@@ -1069,6 +1414,109 @@ async function run() {
     assert.strictEqual(res.headers["Access-Control-Allow-Origin"], PROD_ORIGIN);
   });
 
+  console.log("\nDate context reaches the system prompt Qwen actually receives");
+
+  await test("the system message sent to Qwen carries the authoritative currentLocalDate/currentYear/currentMonth/timeZone", async () => {
+    _resetBurstStateForTests();
+    let sentSystemMessage = null;
+    const fetchImpl = async (_url, opts) => {
+      const body = JSON.parse(opts.body);
+      sentSystemMessage = body.messages.find((m) => m.role === "system")?.content;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }) };
+    };
+    const handler = createHandler(baseDeps({ fetchImpl }));
+    await handler(makeEvent({ body: chatBody({ message: "What did I record this month?", scopes: ["calendar"] }) }));
+    assert.ok(sentSystemMessage, "a system message must be sent");
+    assert.ok(sentSystemMessage.includes("currentLocalDate=2026-07-18"), sentSystemMessage);
+    assert.ok(sentSystemMessage.includes("currentYear=2026"));
+    assert.ok(sentSystemMessage.includes("currentMonth=7"));
+    assert.ok(sentSystemMessage.includes("timeZone=Asia/Kuala_Lumpur"));
+  });
+
+  await test("the system prompt explicitly forbids 'scheduled'/'pre-scheduled'/'placeholder'/'added in advance' language and requires recorded/uploaded/created instead", async () => {
+    _resetBurstStateForTests();
+    let sentSystemMessage = null;
+    const fetchImpl = async (_url, opts) => {
+      sentSystemMessage = JSON.parse(opts.body).messages.find((m) => m.role === "system")?.content;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }) };
+    };
+    const handler = createHandler(baseDeps({ fetchImpl }));
+    await handler(makeEvent({ body: chatBody({ scopes: ["calendar"] }) }));
+    assert.ok(sentSystemMessage.includes("scheduled"));
+    assert.ok(sentSystemMessage.includes("recorded"));
+    assert.ok(/uploaded|created/.test(sentSystemMessage));
+  });
+
+  await test("the system prompt tells the model to state the actual resolvedRange searched", async () => {
+    _resetBurstStateForTests();
+    let sentSystemMessage = null;
+    const fetchImpl = async (_url, opts) => {
+      sentSystemMessage = JSON.parse(opts.body).messages.find((m) => m.role === "system")?.content;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }) };
+    };
+    const handler = createHandler(baseDeps({ fetchImpl }));
+    await handler(makeEvent({ body: chatBody({ scopes: ["calendar"] }) }));
+    assert.ok(/resolvedRange|actual range/i.test(sentSystemMessage));
+  });
+
+  await test("the system prompt instructs the model to answer in the same language as the Owner's message (EN/ZH)", async () => {
+    _resetBurstStateForTests();
+    let sentSystemMessage = null;
+    const fetchImpl = async (_url, opts) => {
+      sentSystemMessage = JSON.parse(opts.body).messages.find((m) => m.role === "system")?.content;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }) };
+    };
+    const handler = createHandler(baseDeps({ fetchImpl }));
+    await handler(makeEvent({ body: chatBody() }));
+    assert.ok(/same language/i.test(sentSystemMessage));
+    assert.ok(/Chinese/i.test(sentSystemMessage) && /English/i.test(sentSystemMessage));
+  });
+
+  await test("a follow-up request always carries the CURRENT authoritative date, never a year poisoned by earlier conversation text", async () => {
+    _resetBurstStateForTests();
+    let sentSystemMessage = null;
+    const fetchImpl = async (_url, opts) => {
+      sentSystemMessage = JSON.parse(opts.body).messages.find((m) => m.role === "system")?.content;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }) };
+    };
+    const handler = createHandler(baseDeps({ fetchImpl }));
+    // Simulates a follow-up turn whose own conversation history contains a wrong/hallucinated
+    // year from an earlier (broken) turn — the system prompt must still assert today's REAL date.
+    const poisonedHistory = [
+      { role: "user", content: "What did I record in June?" },
+      { role: "assistant", content: "In June 2024, you recorded..." },
+    ];
+    await handler(makeEvent({ body: chatBody({ message: "And what about July?", history: poisonedHistory, scopes: ["calendar"] }) }));
+    // The authoritative-date sentence itself is what must never drift — checked as its own
+    // substring rather than "2024 must never appear anywhere in the prompt," since the prompt's
+    // own explanatory text legitimately uses "June 2024" as an illustrative example of the
+    // "explicit dates always win" rule, unrelated to this conversation's actual history.
+    const authoritativeDateSentence = sentSystemMessage.split("Authoritative current date:")[1]?.split(".")[0] || "";
+    assert.ok(authoritativeDateSentence.includes("currentLocalDate=2026-07-18"));
+    assert.ok(authoritativeDateSentence.includes("currentYear=2026"));
+    assert.ok(!authoritativeDateSentence.includes("2024"), "the authoritative date fact itself must never be influenced by conversation history");
+  });
+
+  await test("resolvedRange survives all the way into the final tool-call round-trip content sent to Qwen", async () => {
+    _resetBurstStateForTests();
+    let secondRoundToolMessage = null;
+    let call = 0;
+    const fetchImpl = async (_url, opts) => {
+      call++;
+      const body = JSON.parse(opts.body);
+      if (call === 1) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: null, tool_calls: [{ id: "c1", function: { name: "list_calendar", arguments: JSON.stringify({ relativePeriod: "this_month" }) } }] } }] }) };
+      }
+      secondRoundToolMessage = body.messages.find((m) => m.role === "tool")?.content;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }) };
+    };
+    const handler = createHandler(baseDeps({ fetchImpl }));
+    await handler(makeEvent({ body: chatBody({ message: "What did I record this month?", scopes: ["calendar"] }) }));
+    assert.ok(secondRoundToolMessage, "the tool result must be sent back to Qwen in round 2");
+    const parsed = JSON.parse(secondRoundToolMessage);
+    assert.deepStrictEqual(parsed.resolvedRange, { startDate: "2026-07-01", endDate: "2026-07-31", timeZone: "Asia/Kuala_Lumpur" });
+  });
+
   // ================= i18n key parity =================
   console.log("\ni18n");
 
@@ -1150,12 +1598,16 @@ async function run() {
     assert.strictEqual(cachePutCalls.length, 1, "a normal page request should still be cached as before");
   });
 
-  await test("service-worker.js CACHE version is eden-shell-v24 (bumped for this pass's assistant.js frontend change) and includes assistant.html/assistant.js in PRECACHE", async () => {
+  await test("service-worker.js CACHE version is eden-shell-v25 (bumped for this pass's browser-file changes) and includes assistant.html/assistant.js in PRECACHE", async () => {
     const root = path.resolve(__dirname, "..", "..", "..");
     const src = fs.readFileSync(path.join(root, "service-worker.js"), "utf8");
-    assert.ok(/const CACHE = "eden-shell-v24"/.test(src));
+    assert.ok(/const CACHE = "eden-shell-v25"/.test(src));
     assert.ok(/"assistant\.html"/.test(src));
     assert.ok(/"assistant\.js"/.test(src));
+    assert.ok(/"gallery\.js"/.test(src));
+    assert.ok(/"journal\.js"/.test(src));
+    assert.ok(/"timeline\.js"/.test(src));
+    assert.ok(/"styles\.css"/.test(src));
   });
 
   // ---- Summary ----

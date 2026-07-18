@@ -93,10 +93,166 @@ function saveConversation() {
 }
 
 // ---- Rendering ----
-function esc(str) {
-  const div = document.createElement("div");
-  div.textContent = str == null ? "" : String(str);
-  return div.innerHTML;
+//
+// Task F: model output is ALWAYS untrusted — never assigned to innerHTML/insertAdjacentHTML,
+// even escaped. Every function below builds real DOM nodes (createElement/textContent/
+// appendChild) so a string like "<img onerror=alert(1)>" or "<script>...</script>" can only ever
+// end up as literal, inert text content — there is no code path here that parses it as markup at
+// all, escaped or otherwise. The only Markdown support is deliberately minimal (task F: "do not
+// add broad raw-HTML Markdown support"): paragraphs, single-level bullet/numbered lists, and
+// stripping (not styling) **bold**/*italic*/`code` decorations so the raw asterisks/backticks
+// the model sometimes emits don't show up as literal punctuation in the chat.
+
+// Strips the delimiter characters for a small, safe set of inline Markdown decorations, keeping
+// the inner text as plain text — never converts them into real <strong>/<em>/<code> elements
+// (simpler and equally sufficient for "make it readable," per task F's explicit "harmless
+// decorations" framing rather than a styled rendering).
+function stripInlineMarkdown(str) {
+  return String(str || "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(^|[\s(])\*([^\s*][^*]*?)\*(?=[\s).,!?;:]|$)/g, "$1$2")
+    .replace(/(^|[\s(])_([^\s_][^_]*?)_(?=[\s).,!?;:]|$)/g, "$1$2");
+}
+
+// Parses a small, safe subset of Markdown structure — blank-line-separated paragraphs and
+// single-level "-"/"*"/"1." lists — directly into DOM nodes appended to `container`. No nested
+// lists, no headings, no tables, no links, no raw HTML passthrough of any kind.
+function renderAnswerBody(container, text) {
+  container.replaceChildren();
+  const lines = String(text || "").split(/\r?\n/);
+  let currentList = null; // { el, ordered }
+  let paragraphLines = [];
+
+  function flushParagraph() {
+    if (!paragraphLines.length) return;
+    const p = document.createElement("p");
+    p.className = "text-sm whitespace-pre-wrap break-words";
+    p.textContent = stripInlineMarkdown(paragraphLines.join(" "));
+    container.appendChild(p);
+    paragraphLines = [];
+  }
+  function flushList() {
+    if (currentList) { container.appendChild(currentList.el); currentList = null; }
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) { flushParagraph(); flushList(); continue; }
+    const bulletMatch = /^[-*]\s+(.*)$/.exec(line);
+    const numberedMatch = /^\d+[.)]\s+(.*)$/.exec(line);
+    if (bulletMatch || numberedMatch) {
+      flushParagraph();
+      const ordered = !!numberedMatch;
+      if (!currentList || currentList.ordered !== ordered) {
+        flushList();
+        const el = document.createElement(ordered ? "ol" : "ul");
+        el.className = ordered ? "list-decimal pl-5 text-sm space-y-1" : "list-disc pl-5 text-sm space-y-1";
+        currentList = { el, ordered };
+      }
+      const li = document.createElement("li");
+      li.textContent = stripInlineMarkdown((bulletMatch || numberedMatch)[1]);
+      currentList.el.appendChild(li);
+    } else {
+      flushList();
+      paragraphLines.push(line);
+    }
+  }
+  flushParagraph();
+  flushList();
+
+  if (!container.childNodes.length) {
+    container.appendChild(document.createElement("p")).className = "text-sm whitespace-pre-wrap break-words";
+  }
+}
+
+// gallery.html?memory=<id> / journal.html?entry=<id> / timeline.html?event=<id> — each target
+// page resolves the id only against its own already-fetched, already-authorized data (see
+// gallery.js/journal.js/timeline.js's maybeFocus*FromQuery(), added alongside this), mirroring
+// atlas.js's pre-existing ?memory= deep link. The Assistant never renders a raw id as visible
+// text anywhere — only as this URL parameter.
+const SOURCE_QUERY_PARAM = { memory: "memory", journal: "entry", journey: "event" };
+
+function buildSourceChips(sources) {
+  const wrap = document.createElement("div");
+  wrap.className = "flex flex-wrap gap-1.5 mt-2";
+  sources
+    .filter((s) => SOURCE_PAGE[s.type] && SOURCE_QUERY_PARAM[s.type])
+    .forEach((s) => {
+      const a = document.createElement("a");
+      a.href = `${SOURCE_PAGE[s.type]}?${SOURCE_QUERY_PARAM[s.type]}=${encodeURIComponent(s.id)}`;
+      a.className = "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-darkBg/60 border border-borderNeon text-[11px] text-textGray hover:text-white hover:border-neonPurple/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neonPurple";
+      const label = s.label || s.type;
+      const openLabel = t("assistant.open_source") !== "assistant.open_source" ? t("assistant.open_source") : "Open";
+      a.setAttribute("aria-label", `${openLabel}: ${label}`);
+      const icon = document.createElement("i");
+      icon.setAttribute("data-lucide", SOURCE_ICON[s.type] || "file");
+      icon.className = "w-3 h-3";
+      a.appendChild(icon);
+      a.appendChild(document.createTextNode(label));
+      wrap.appendChild(a);
+    });
+  return wrap;
+}
+
+function buildCopyButton() {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "assistant-copy-btn text-[11px] text-textGray hover:text-white flex items-center gap-1 mt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neonPurple rounded";
+  const label = t("assistant.copy_response") !== "assistant.copy_response" ? t("assistant.copy_response") : "Copy response";
+  btn.setAttribute("aria-label", label);
+  const icon = document.createElement("i");
+  icon.setAttribute("data-lucide", "copy");
+  icon.className = "w-3 h-3";
+  const span = document.createElement("span");
+  span.dataset.i18n = "assistant.copy_response";
+  span.textContent = label;
+  btn.appendChild(icon);
+  btn.appendChild(span);
+  return btn;
+}
+
+function buildBubble(msg) {
+  const isUser = msg.role === "user";
+  const wrapper = document.createElement("div");
+  wrapper.className = `max-w-[85%] ${isUser ? "ml-auto" : "mr-auto"} ${isUser ? "bg-neonPurple/15 text-white" : "bg-darkBg/60 text-white"} rounded-2xl px-4 py-3`;
+
+  if (msg.pending) {
+    wrapper.setAttribute("aria-label", t("assistant.thinking") !== "assistant.thinking" ? t("assistant.thinking") : "Thinking…");
+    const dots = document.createElement("span");
+    dots.className = "flex items-center gap-1";
+    for (let i = 0; i < 3; i++) {
+      const dot = document.createElement("span");
+      dot.className = "eden-typing-dot w-1.5 h-1.5 rounded-full bg-textGray inline-block";
+      dots.appendChild(dot);
+    }
+    const phase = document.createElement("span");
+    phase.className = "assistant-thinking-phase text-xs text-textGray ml-2";
+    phase.textContent = msg.phase || "";
+    wrapper.appendChild(dots);
+    wrapper.appendChild(phase);
+    return wrapper;
+  }
+
+  const body = document.createElement("div");
+  if (isUser) {
+    const p = document.createElement("p");
+    p.className = "text-sm whitespace-pre-wrap break-words";
+    p.textContent = msg.content; // the Owner's own typed text — plain text content, no markdown parsing needed
+    body.appendChild(p);
+  } else {
+    renderAnswerBody(body, msg.content); // untrusted model output — see renderAnswerBody()'s own comment
+  }
+  wrapper.appendChild(body);
+
+  if (!isUser && msg.sources && msg.sources.length) {
+    wrapper.appendChild(buildSourceChips(msg.sources));
+  }
+  if (!isUser && !msg.cancelled) {
+    wrapper.appendChild(buildCopyButton());
+  }
+  return wrapper;
 }
 
 function renderSuggestedPrompts() {
@@ -122,40 +278,6 @@ function setScopeChecked(scope, checked) {
   saveScopes(currentScopes());
 }
 
-function copyBtnHTML() {
-  return `<button type="button" class="assistant-copy-btn text-[11px] text-textGray hover:text-white flex items-center gap-1 mt-2" aria-label="${t("assistant.copy_response") !== "assistant.copy_response" ? t("assistant.copy_response") : "Copy response"}">
-    <i data-lucide="copy" class="w-3 h-3"></i><span data-i18n="assistant.copy_response">Copy response</span></button>`;
-}
-
-function sourceCardsHTML(sources) {
-  if (!sources || !sources.length) return "";
-  const chips = sources
-    .filter((s) => SOURCE_PAGE[s.type])
-    .map(
-      (s) => `<a href="${SOURCE_PAGE[s.type]}" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-darkBg/60 border border-borderNeon text-[11px] text-textGray hover:text-white hover:border-neonPurple/50 transition-colors">
-        <i data-lucide="${SOURCE_ICON[s.type] || "file"}" class="w-3 h-3"></i>${esc(s.label || s.type)}
-      </a>`
-    )
-    .join("");
-  return chips ? `<div class="flex flex-wrap gap-1.5 mt-2">${chips}</div>` : "";
-}
-
-function bubbleHTML(msg) {
-  const isUser = msg.role === "user";
-  const align = isUser ? "ml-auto" : "mr-auto";
-  const bg = isUser ? "bg-neonPurple/15 text-white" : "bg-darkBg/60 text-white";
-  if (msg.pending) {
-    return `<div class="max-w-[85%] ${align} ${bg} rounded-2xl px-4 py-3" aria-label="${t("assistant.thinking") !== "assistant.thinking" ? t("assistant.thinking") : "Thinking…"}">
-      <span class="flex items-center gap-1"><span class="eden-typing-dot w-1.5 h-1.5 rounded-full bg-textGray inline-block"></span><span class="eden-typing-dot w-1.5 h-1.5 rounded-full bg-textGray inline-block"></span><span class="eden-typing-dot w-1.5 h-1.5 rounded-full bg-textGray inline-block"></span></span>
-      <span class="assistant-thinking-phase text-xs text-textGray ml-2">${esc(msg.phase || "")}</span>
-    </div>`;
-  }
-  const body = `<p class="text-sm whitespace-pre-wrap break-words">${esc(msg.content)}</p>`;
-  const sources = isUser ? "" : sourceCardsHTML(msg.sources);
-  const copy = isUser || msg.cancelled ? "" : copyBtnHTML();
-  return `<div class="max-w-[85%] ${align} ${bg} rounded-2xl px-4 py-3">${body}${sources}${copy}</div>`;
-}
-
 function renderAll() {
   messagesEl.querySelectorAll(".assistant-bubble-row").forEach((el) => el.remove());
   emptyStateEl.classList.toggle("hidden", conversation.length > 0);
@@ -163,7 +285,7 @@ function renderAll() {
     const row = document.createElement("div");
     row.className = "assistant-bubble-row flex";
     row.dataset.index = String(i);
-    row.innerHTML = bubbleHTML(msg);
+    row.appendChild(buildBubble(msg));
     messagesEl.appendChild(row);
   });
   if (window.lucide) window.lucide.createIcons();
@@ -407,10 +529,26 @@ retryBtn.addEventListener("click", () => {
   if (lastUserMessage) sendMessage(lastUserMessage);
 });
 
+// Task I: New Chat / Clear must reset EVERYTHING idempotently — conversation, any in-flight
+// request, the pending/thinking indicator, the error banner, and sessionStorage — in one
+// synchronous call, safe to invoke repeatedly (e.g. a fast double-click) with no partial state
+// left over. Aborting any in-flight request here also matters for date correctness: an in-flight
+// response that later resolves after a New Chat click must never land in the fresh, empty
+// conversation — aborting it means sendMessage()'s own AbortError branch simply no-ops into a
+// conversation array that's already been replaced.
 function resetConversation() {
+  if (currentController) {
+    currentController.abort();
+    currentController = null;
+  }
+  stopThinkingAnimation();
   conversation = [];
+  lastUserMessage = null;
   sessionStorage.removeItem(CONVO_KEY);
   hideError();
+  sendBtn.classList.remove("hidden");
+  stopBtn.classList.add("hidden");
+  inputEl.disabled = false;
   renderAll();
 }
 newChatBtn.addEventListener("click", resetConversation);
