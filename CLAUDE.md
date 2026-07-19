@@ -1794,6 +1794,63 @@ needed no changes.
    permissions change, no dormant CDN feature flag (removed outright, not kept behind a toggle),
    no commit/push/PR/deploy.
 
+**"Production Hardening — Security/Reliability/UX audit: stored XSS remediation" (most recent,
+`audit/security-reliability-ux` branch)** — a read-only audit first (firestore.rules/
+storage.rules re-read line by line — no new gaps found beyond what prior passes already closed;
+open redirects re-audited — no new findings; SW cache/proxy bypass cross-checked against the
+pending iOS PWA branch to avoid duplicating that work), which surfaced one severe, sitewide,
+previously-undiscovered class of bug: **stored XSS via unescaped Firestore content interpolated
+into `innerHTML`**. The codebase had an established `esc()` escaping convention (used correctly
+in `calendar.js`, `js/location-search.js`, and *some* of `portfolio.js`/`profile.js`/
+`gallery.js`), but it was never applied consistently — most page scripts had no escaping at all.
+1. **Root cause, not a one-off**: any participant (`canParticipate()` is enough — Owner or
+   Friend) can write free text into a title/caption/bio/description/note field on almost every
+   collection, and most of those collections default to `isMineOrPublic` (public/connections
+   items are readable by *other* signed-in users, by design — that's how the whole app's
+   public-content model works). A payload planted once in a public record then executes for
+   every viewer who encounters it through any of several independent rendering surfaces.
+2. **Confirmed and fixed, file by file, one commit per file** (`node --check` + full
+   `npm run build && npm test && npm run test:tailwind-migration` after each): `journal.js`
+   (worst instance — `entry.content` was piped through `marked.parse()` with **no sanitizer**,
+   so raw `<script>`/`<img onerror>` executed even in the collapsed preview, which only stripped
+   markdown syntax characters, not HTML; fixed by escaping the raw text *before* `marked.parse()`,
+   which neutralizes HTML while leaving markdown syntax untouched), `gallery.js` (caption in both
+   an `alt=` attribute and content context, plus comments), `notifications.js` (title/message —
+   `gallery.js`'s "someone liked your photo" notification embeds the caption verbatim, so this
+   was a second-order vector reachable from the first), `timeline.js`, `habits.js`, `dashboard.js`
+   (Connections cards — every discoverable person's bio/location/displayName), `global-search.js`
+   (the sitewide Ctrl/Cmd-K palette — the single widest-reach surface, since it's injected on
+   every protected page), `profile.js` (already had `esc()` defined but used it inconsistently —
+   the header, photo grid, Journey/Journal lists, Career preview, Atlas places, Recent Activity,
+   and photo-modal comments were all missed despite the detail modal added in v3.4 being correct),
+   `collections.js` + `collection-detail.js` (title/description/coverImageUrl/color/icon, plus
+   every record type shown inside a collection), `career.js` (Experience/Project/Certificate/
+   Award fields — the highest real-world stakes, since Career is the one collection readable by
+   **unauthenticated** visitors; also added `safeHref()` to validate `githubUrl`/`demoUrl`/
+   `credentialUrl`/document URLs are `http(s)` before use, closing a `javascript:`-URI vector a
+   plain `esc()` wouldn't catch), and `atlas.js` (locationName/locationAddress — including
+   Leaflet's `bindTooltip()`, which treats a string as HTML by default via `setContent()`, a
+   non-obvious injection point outside the usual `innerHTML =` grep pattern).
+3. **Verified safe by design, not fixed because nothing was wrong**: `portfolio.js`/`project.js`
+   render every Firestore-derived value through a small `h()` DOM-builder that only ever sets
+   `.textContent`/element properties, never `innerHTML` — confirmed by re-reading, not assumed
+   from the file's own header comment.
+4. **Deliberately deferred to Medium (documented, not fixed this pass)**: the same unescaped
+   pattern exists in `expenses.js`/`time-capsule.js`/`me.js` (Goals/location) — but every one of
+   those fields lives on always-private, owner-uid-only collections with no `isMineOrPublic`
+   clause, so the worst case is self-XSS (a user attacking only their own browser via their own
+   private data) with no privilege boundary crossed, unlike every Critical fix above.
+5. **Also inventoried, not yet acted on**: ~24 of 26 modals sitewide have no focus trap/Escape/
+   focus-restore (only gallery.js's Trash confirms and assistant.html's consent modal do) — a
+   real WCAG 2.1.2/2.4.3 gap, scoped out of this pass since fixing 24 modals properly needs its
+   own dedicated, tested pass. The full modal inventory (26 `id`s across 13 pages) is recorded so
+   a future pass doesn't have to re-discover it. The Dark/Light audit's deferred modal-backdrop
+   translucency issue is folded into that same future pass, per instruction — fixing it now,
+   before the modal inventory/regression coverage exists, was explicitly ruled out.
+6. **Not part of this pass**: no `firestore.rules`/`storage.rules` changes (this was never a
+   rules-layer gap — every rule correctly allows the reads that make the unescaped renders
+   reachable; the bug was always client-side, at the render boundary), no deploy, nothing merged.
+
 ## Architecture
 
 ### Roles and the multi-tenant data model
