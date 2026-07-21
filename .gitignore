@@ -1,5 +1,7 @@
 .firebase/
 firebase-debug.log
+firestore-debug.log
+ui-debug.log
 node_modules/
 
 # Generated Netlify publish output (scripts/build-site.js) — reproducible from source on every

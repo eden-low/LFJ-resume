@@ -2308,6 +2308,93 @@ validated AniList outbound link — all explicitly out of scope for this pass, r
    dramas, and personal score/notes fields. No deploy, nothing merged to `main` — this pass
    branched fresh from `origin/main` (`bd7873e`) as `feat/discover-anime-mvp` and stops at push.
 
+**"Discover: real emulator-backed Firestore Rules tests for `followed_anime`" (most recent, same
+`feat/discover-anime-mvp` branch, PR #8)** — replaces the "hand-translated into a JS simulation,
+not run against the real Firestore Rules engine" caveat the original Discover MVP entry (point 4
+above) explicitly flagged, with an actual `@firebase/rules-unit-testing` suite run against a real
+Firestore Emulator. `js/__tests__/discover-security.test.js`'s hand-translated simulation is
+**not** replaced or removed by this pass — it stays as a fast, offline sanity check — this is a
+second, independent suite exercising the literal, unmodified `firestore.rules` file with real
+Firestore client SDK calls (`setDoc`/`getDoc`/`getDocs`/`updateDoc`/`deleteDoc`/`writeBatch`)
+under real `request.auth`/`request.resource`/`resource.data` semantics, which a hand-translation
+can never fully guarantee matches.
+1. **[firestore/\_\_tests\_\_/discover-rules.test.js](firestore/__tests__/discover-rules.test.js)**
+   (new) — 29 test blocks, 52 real `assertSucceeds`/`assertFails` Rules-engine round trips (68
+   assertions total counting data-integrity checks), covering every success/denial scenario the
+   `followed_anime` rule block expresses: exact field allowlist, all 5 `status` values, real
+   `serverTimestamp()`/`request.time` resolution, the uid-scoped My List query, immutable-field
+   preservation on update, unauthenticated/Friend/Viewer denial, an owner-email-but-wrong-uid and
+   an owner-uid-but-wrong-email scenario (the rules-layer analogue of a "role mismatch" — this
+   collection's `isOwner()` checks only `request.auth.token.email`, with no `users/{uid}.role`
+   cross-check the way `netlify/functions/assistant.js`'s server-side two-signal AND check has;
+   documented here rather than treated as a gap, since a rules-only collection has no clean way
+   to `get()` another document without an extra read), wrong/missing `anilistId`/`mediaType`/
+   `isAdult`/`status`, extra fields on create *and* update, client-literal timestamps instead of
+   `request.time`, `followedAt`/`uid`/`anilistId`/`mediaType` mutation attempts, an unscoped
+   collection query (rejected outright as unprovable, not just empty), and atomic batch failure
+   (one invalid op in a batch fails the whole commit — verified via `withSecurityRulesDisabled()`
+   reads showing neither the valid nor invalid half was written). Requires
+   `FIRESTORE_EMULATOR_HOST` to be set and refuses to run otherwise (a real, enforced check at
+   the top of the file, not just documentation); uses project id `demo-edenatlas-discover-rules`
+   (Firebase's own documented no-real-project convention) so it can never reach `lfj-profolio`;
+   seeds/verifies exclusively through `testEnv.withSecurityRulesDisabled()`, never a real Admin
+   credential.
+2. **Two real bugs found and fixed while building this suite** (in the test helpers, not in
+   `firestore.rules` itself — the rule block passed every scenario on the very first run once the
+   helpers were correct): (a) `@firebase/rules-unit-testing`'s `withSecurityRulesDisabled()` awaits
+   its callback but never propagates the callback's return value (confirmed by reading the
+   installed package's own source) — an admin-bypass read helper that `return`s the library call
+   directly silently resolves to `undefined`; fixed by capturing the result via an outer closure
+   variable instead; (b) `RulesTestContext.firestore()` returns the **compat/namespaced** Firestore
+   instance, not the modular one every other call in the suite uses (per the library's own type
+   declarations and its own JSDoc example, which itself calls the modular `doc(ctx.firestore(),
+   path)` rather than `ctx.firestore().doc(path)`) — calling the compat `.doc(path).get()` method
+   chain directly still "works" but returns a snapshot whose `.exists` is a boolean **property**,
+   not the modular API's `.exists()` **method**, throwing `snap.exists is not a function` the
+   moment a bypass-read helper tried to call it as one. Both are now documented inline in the test
+   file itself so a future edit doesn't reintroduce either mistake.
+3. **New pinned devDependencies** (exact versions, `--save-exact`, matching this repo's existing
+   `tailwindcss`/`dompurify`/`marked`/`jsdom` convention): `firebase@12.16.0`,
+   `@firebase/rules-unit-testing@5.0.1` (its own `peerDependencies` requires `firebase@^12.0.0`,
+   satisfied), `firebase-tools@15.24.0`. All dev-only — the frontend's Firebase usage stays exactly
+   as it was (`firebase-init.js`'s ES-module CDN imports, unrelated to this npm package).
+4. **`firebase.json`** gained a minimal `emulators: { firestore: { port: 8080 } }` block — the only
+   addition, every pre-existing `firestore`/`storage` rules-path config left untouched. `.firebaserc`
+   (`lfj-profolio`, the real production project) was **not** touched at all; the demo project id is
+   passed explicitly via `--project demo-edenatlas-discover-rules` on the CLI instead, so the real
+   default project is never implicated by this suite even by accident.
+5. **`package.json`** gained `test:firestore-rules` (`firebase emulators:exec --project
+   demo-edenatlas-discover-rules --only firestore "node firestore/__tests__/discover-rules.test.js"`)
+   as its own dedicated, standalone command — **deliberately not folded into `npm run test`**
+   (`test:functions && test:frontend`), mirroring `test:tailwind-migration`'s own existing
+   precedent: `npm test`'s documented, repeatedly-stated invariant throughout this file's history
+   is "zero network calls, zero real Firebase project, zero external tool dependency," and this
+   suite needs a live Java-based Firestore Emulator to run at all — folding it in would silently
+   impose a JDK requirement on every future `npm test` run and break that invariant for any
+   environment (including CI) that doesn't have one. A new `test:all` script
+   (`test && test:firestore-rules && test:tailwind-migration`) exists as the umbrella for anyone who
+   wants to run everything, including the emulator suite, in one command. `scripts/__tests__/
+   tailwind-migration.test.js`'s pinned `pkg.scripts.test`/`test:functions`/`test:frontend` string
+   assertions were **not touched** — none of those three scripts changed, so none of that pass's
+   existing pinned-command checks needed updating.
+6. **`.gitignore`** gained `firestore-debug.log`/`ui-debug.log` (the Firestore Emulator's own local
+   log files, generated the first time this suite actually runs locally — this repo had never run
+   any Firebase emulator before this pass, so these never existed until now); `.firebase/`/
+   `firebase-debug.log` were already ignored from an earlier pass and needed no change.
+7. **Verification performed**: `npm run build` (clean, 57 files + 3 directories copied), `npm run
+   test:functions` (95/95), `npm run test:frontend` (30/30), `npm run test:tailwind-migration`
+   (23/23, unaffected by this pass's package.json/firebase.json/.gitignore changes), and `npm run
+   test:firestore-rules` itself (29/29, 52 real assertSucceeds/assertFails calls) — each run
+   individually with its exact pass count recorded, not inferred from a single combined command.
+8. **Explicitly not done, per this pass's own hard boundaries**: `firestore.rules` was not deployed
+   (`npx firebase-tools deploy --only firestore:rules,storage` was never run); PR #8 was not merged;
+   no production Firestore project was ever contacted (every write/read in this pass's new suite
+   targets `demo-edenatlas-discover-rules` against a local emulator process only); `.firebaserc`'s
+   real project id was never touched. A JDK (Eclipse Temurin 21) was installed on this machine via
+   `winget` to make the emulator possible at all — that is a one-time environment change, not a
+   project file, and is called out here since it's the one part of this pass that touched
+   something outside the repository itself.
+
 ## Architecture
 
 ### Roles and the multi-tenant data model
