@@ -1,0 +1,52 @@
+[
+  {
+    "name": "plain_with_br",
+    "raw": "A hero rises.<br>He saves the world.<br><br>The end.",
+    "expectedPlainText": "A hero rises.\nHe saves the world.\n\nThe end."
+  },
+  {
+    "name": "bold_italic_tags",
+    "raw": "This is <b>bold</b> and <i>italic</i> and <b><i>both</i></b> text.",
+    "expectedPlainText": "This is bold and italic and both text."
+  },
+  {
+    "name": "entities",
+    "raw": "Tom &amp; Jerry&mdash;a classic. &quot;Great show,&quot; they said. &lt;really&gt;",
+    "expectedPlainText": "Tom & Jerry—a classic. \"Great show,\" they said. <really>"
+  },
+  {
+    "name": "script_style_stripped",
+    "raw": "Safe text.<script>alert(1)</script> More safe text.<style>body{color:red}</style> End.",
+    "expectedPlainText": "Safe text. More safe text. End."
+  },
+  {
+    "name": "self_closing_br_variants",
+    "raw": "Line1<br/>Line2<br />Line3<BR>Line4",
+    "expectedPlainText": "Line1\nLine2\nLine3\nLine4"
+  },
+  {
+    "name": "nested_tags_no_content_loss",
+    "raw": "<p>A <span class=\"x\">story</span> about <a href=\"javascript:alert(1)\">heroes</a>.</p>",
+    "expectedPlainText": "A story about heroes."
+  },
+  {
+    "name": "excess_whitespace_collapsed",
+    "raw": "Para one.<br><br><br><br>Para two.",
+    "expectedPlainText": "Para one.\n\nPara two."
+  },
+  {
+    "name": "img_void_tag_no_inner_text",
+    "raw": "Before.<img src=\"x.jpg\">After.",
+    "expectedPlainText": "Before.After."
+  },
+  {
+    "name": "numeric_and_named_entities",
+    "raw": "Caf&#233; visit &hellip; &#x2764;",
+    "expectedPlainText": "Café visit … ❤"
+  },
+  {
+    "name": "empty_after_stripping",
+    "raw": "<br><br>   <b></b>  ",
+    "expectedPlainText": ""
+  }
+]
