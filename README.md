@@ -167,35 +167,56 @@ Qwen until the Owner explicitly accepts a bilingual consent notice; per-request 
 `node netlify/functions/__tests__/assistant.test.js` (or `npm run test:functions`) for the
 deterministic, fully-mocked test suite (no real Firebase project or Qwen key needed).
 
-## Discover (anime, Phase 1): `discover.html` + `netlify/functions/anilist.js`
+## Discover (anime): `discover.html` + `netlify/functions/anilist.js` + `netlify/functions/discover-ai.js`
 
 An **Owner-only** personal anime tracker — not in the main nav table above (same treatment as
 Atlas Assistant/Constellation: an Owner-scoped feature with its own dedicated section, not a row
-in the primary-nav page table). Two views: **Discover** (This Season / Trending / Search, backed
-live by [AniList](https://anilist.co)'s public GraphQL API) and **My List** (All / Plan to Watch /
-Watching / Completed / Paused / Dropped), each card showing cover, preferred title, AniList's own
-`averageScore`, format, airing status, available episode count, and next-airing info when
-applicable. Every AniList request goes through `/.netlify/functions/anilist` — a fixed
-operation allowlist (`browse`/`search`/`details`/`batch`, `netlify/functions/lib/
-anilist-operations.js`) that constructs every GraphQL query server-side; the browser never
-supplies a raw query, and `isAdult: false` is force-set into every request, never read from the
-client. The Function reuses `assistant.js`'s exact Owner-authorization shape (a server-verified
-Firebase ID token plus a `users/{uid}.role === "owner"` + email double-check) — a Friend or
-Viewer's request is rejected with `403 owner_only` before any AniList call is ever made, and the
-page itself is unreachable to them: `discover.html` carries `data-owner-only="true"` (the same
-`auth-guard.js` backstop every other Owner-only page uses), and it appears in neither
-`js/sidebar.js`'s nor `js/mobile-nav.js`'s Friend/Viewer ("Light EdenAtlas") link arrays. A short-
-lived, bounded in-memory cache (`netlify/functions/lib/anilist-cache.js`, never a persistent
-catalog store) and My List's batched `id_in` live-refresh (one Function call for the whole list,
-never N+1) keep this from ever hoarding or bulk-copying the AniList catalog. Followed titles are
-stored minimally in a new `followed_anime/{uid}_{anilistId}` collection — denormalized
-title/cover/format/status only, never AniList's description/genres/score/airing schedule (those
-are always fetched live on demand, never persisted) — gated Owner-only end to end by
-`firestore.rules`. Run `node netlify/functions/__tests__/anilist.test.js` (or `npm run
-test:functions`) for the deterministic, fully-mocked test suite. **Not part of Phase 1** (see
-`CLAUDE.md`'s Discover history entry for the full scope): Qwen-personalized recommendations, a
-"For You" feed, Web Push/scheduled episode-airing notifications, TV dramas, and any
-streaming/external watch link beyond a single validated "View on AniList" link.
+in the primary-nav page table). Three views: **Discover** (This Season / Trending / Search, backed
+live by [AniList](https://anilist.co)'s public GraphQL API), **My List** (All / Plan to Watch /
+Watching / Completed / Paused / Dropped), and **For You** (Qwen-ranked recommendations, see
+below), each card showing cover, preferred title, AniList's own `averageScore`, format, airing
+status, available episode count, and next-airing info when applicable. Every AniList request goes
+through `/.netlify/functions/anilist` — a fixed operation allowlist (`browse`/`search`/`details`/
+`batch`, `netlify/functions/lib/anilist-operations.js`) that constructs every GraphQL query
+server-side; the browser never supplies a raw query, and `isAdult: false` is force-set into every
+request, never read from the client. The Function reuses `assistant.js`'s exact Owner-
+authorization shape (a server-verified Firebase ID token plus a `users/{uid}.role === "owner"` +
+email double-check) — a Friend or Viewer's request is rejected with `403 owner_only` before any
+AniList call is ever made, and the page itself is unreachable to them: `discover.html` carries
+`data-owner-only="true"` (the same `auth-guard.js` backstop every other Owner-only page uses), and
+it appears in neither `js/sidebar.js`'s nor `js/mobile-nav.js`'s Friend/Viewer ("Light EdenAtlas")
+link arrays. A short-lived, bounded in-memory cache (`netlify/functions/lib/anilist-cache.js`,
+never a persistent catalog store) and My List's batched `id_in` live-refresh (one Function call
+for the whole list, never N+1) keep this from ever hoarding or bulk-copying the AniList catalog.
+Followed titles are stored minimally in a new `followed_anime/{uid}_{anilistId}` collection —
+denormalized title/cover/format/status only, never AniList's description/genres/score/airing
+schedule (those are always fetched live on demand, never persisted) — gated Owner-only end to end
+by `firestore.rules`. Run `node netlify/functions/__tests__/anilist.test.js` (or `npm run
+test:functions`) for the deterministic, fully-mocked test suite.
+
+**Discover AI (Qwen translation + recommendations)**: a **third, separate** Netlify Function,
+`netlify/functions/discover-ai.js` — reuses the same Owner-authorization/CORS pattern but has no
+code path to any personal-data collection (Journal/Memories/Finance/Calendar/Profile); it only
+ever reads the Owner's own `followed_anime`, public AniList data through the unmodified
+`anilist-operations.js` sanitizer, and its own rate-limit documents. **Translate to Chinese /
+View Original** (in the detail modal): the browser sends only `{anilistId}`, never synopsis text
+— the Function fetches and translates AniList's description server-side, and the result is cached
+client-side only (`localStorage`, no Firestore, pruned to 100 entries), keyed by a source-text
+hash so a changed description always forces a fresh translation. **For You** (a third Discover
+tab): ranks up to 6 recommendations from a server-built AniList candidate pool (This Season +
+Trending, already filtered by the same `isAdult`/excluded-genre policy, excluding everything
+already followed); Qwen may only select `anilistId`s from that pool and supply a short reason —
+any hallucinated, followed, or duplicate id is dropped server-side, and every returned card's
+actual data comes from the sanitized AniList object, never from Qwen. Never called on ordinary
+page load; loads once per Discover visit, Refresh always bypasses its 20-minute server cache.
+Independent daily/burst quotas from the Atlas Assistant and from each other (20/day translate,
+10/day recommend — see `netlify/functions/lib/rate-limit.js`'s `collectionName` option). Run
+`node netlify/functions/__tests__/discover-ai.test.js` for its deterministic, fully-mocked suite,
+and `node js/__tests__/discover-foryou.test.js` / `node js/__tests__/discover-translate.test.js`
+for the frontend behavior. **Not part of this feature** (see `CLAUDE.md`'s Discover AI history
+entry for the full scope): Web Push/scheduled episode-airing notifications, TV dramas, personal
+score/notes fields, and any streaming/external watch link beyond a single validated "View on
+AniList" link.
 
 ## Login gate: `auth-guard.js` + `login.html`
 

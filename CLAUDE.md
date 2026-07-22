@@ -2395,11 +2395,152 @@ can never fully guarantee matches.
    project file, and is called out here since it's the one part of this pass that touched
    something outside the repository itself.
 
+**"Discover AI — Qwen Chinese translation + 'For You' recommendations (PR B)" (most recent,
+unmerged — `feat/discover-ai-v1` branch)** adds two Owner-only Qwen features on top of PR #8's
+AniList tracker: a Translate to Chinese / View Original control on the anime detail modal, and a
+third Discover view tab, **For You**, with AI-ranked recommendations. A **third, separate**
+Netlify Function — never a modification of `assistant.js` (the personal-data-tool Assistant) or
+`anilist.js` (the AniList proxy).
+1. **`netlify/functions/discover-ai.js` + `netlify/functions/lib/discover-ai-operations.js` +
+   `netlify/functions/lib/discover-ai-cache.js`** — the same three-signal Owner check, exact-
+   origin CORS with generated-Deploy-Preview support, and `REQUIRED_ENV`-fail-closed pattern
+   `assistant.js`/`anilist.js` already established, duplicated rather than shared (this repo's
+   established per-Function convention). This Function's trust boundary is deliberately
+   **narrower** than the Assistant's: it never `require()`s `lib/tools.js` and has no code path to
+   Journal/Memories/Finance/Calendar/Profile at all — the only Firestore collection it ever reads
+   is the verified Owner's own `followed_anime`; every AniList read goes through
+   `lib/anilist-operations.js`'s unmodified `OPERATIONS`/`sanitizeMediaListItem`/
+   `sanitizeMediaDetail` (the exact same `isAdult:false` + excluded-genre policy, never
+   re-implemented or weakened); Qwen access reuses `lib/qwen.js`'s exported
+   `callQwenChatCompletions()` transport (15s timeout, zero automatic retries) directly, never
+   `runAgentLoop()` or its tool-calling machinery.
+2. **`translate_description`** — the browser submits only `{anilistId}`, never synopsis text. The
+   Function fetches AniList's `details` operation server-side (so an adult/excluded-genre title is
+   filtered before Qwen ever sees it — same controlled `not_found`-shaped response either way, per
+   `anilist.js`'s own precedent), canonicalizes the description via `canonicalizeDescription()` (a
+   server-side duplicate of `discover.js`'s existing `descriptionToPlainText()` — the two are
+   proven to match byte-for-byte via shared fixtures, see point 5), computes `sha256:<hex>` over
+   that canonical text, and sends it to Qwen as a JSON `{"sourceText": ...}` **data** field inside
+   the user turn — the system prompt explicitly instructs the untrusted text is never an
+   instruction, closing the obvious prompt-injection vector (verified with an actual injection-
+   shaped fixture in tests, not just asserted). Qwen's own response is parsed via
+   `parseStrictJsonValue()` — a fenced-code-block-aware, brace-balanced extractor, never `eval`,
+   never dependent on `response_format`/`json_object` support from whichever model `QWEN_MODEL`
+   names (deliberately unverified for this pass, per its own instruction) — then defensively
+   stripped of any residual HTML/Markdown before being returned. No server-side cache exists for
+   translations in v1 (an explicit brief instruction) — every cache-miss Function call costs one
+   Qwen request; `cached` in the response is always `false`.
+3. **`recommend`** — args are `{locale: "en"|"zh-CN", force?: boolean}`, nothing else. Reads only
+   the Owner's own `followed_anime` (a plain `where("uid","==",uid)` query, no composite index);
+   empty history short-circuits to `insufficient_history` before any AniList/Qwen call or daily-
+   quota increment. History is bounded to 25 records, prioritizing watching/completed/planning
+   ahead of dropped (`boundFollowedHistory()`) while still summarizing dropped titles to Qwen as a
+   negative-taste signal; a `historyFingerprint()` (a hash of the bounded `(id,status)` set) plus
+   uid+locale+`RECOMMENDATION_POLICY_VERSION` key a 20-minute **in-memory-only** cache
+   (`lib/discover-ai-cache.js`) that `force:true` (Refresh) bypasses — a cache hit, an empty-
+   history reject, and an empty-candidate-pool reject all skip the durable daily-quota increment
+   entirely, mirroring `assistant.js`'s own "never charge quota for a request that can't produce a
+   useful answer" precedent. Candidates come from up to 20 This-Season + 20 Trending AniList items
+   (`OPERATIONS.browse`, same policy as point 1), deduplicated by id, with every followed id
+   (regardless of status) excluded — a dropped title can never be re-suggested, since it's
+   excluded from candidates by the same followed-id check that excludes everything else. Qwen is
+   sent only `{id, title, format, averageScore, status, genres}` per candidate (genres recovered
+   from the raw pre-sanitization AniList response purely as internal ranking context — never
+   exposed to the client, which only ever receives `sanitizeMediaListItem`-shaped cards, matching
+   every other list surface in this app) and asked to return `{recommendations:[{anilistId,
+   reason}]}`, capped at 6. `selectValidRecommendations()` is the actual enforcement boundary: any
+   returned id not present in the server-built `candidateMap` — hallucinated, followed, dropped,
+   or duplicated — is silently dropped, never surfaced; the final `anime` field on every
+   recommendation is rebuilt exclusively from the candidate map's own sanitized entry, so Qwen
+   supplying a spoofed title/rating/siteUrl/coverImage alongside a valid id has zero effect. A
+   response with zero surviving recommendations still returns `ok:true` with an empty array
+   (`no_valid_recommendations`/`no_candidates`), never a partial/unsafe payload.
+4. **`lib/rate-limit.js`** gained a backward-compatible `collectionName` option on
+   `checkAndIncrementDailyUsage()` (default `"ai_usage"`, unchanged — `assistant.js`'s own call
+   site never passes it, so its 50/day pool is byte-for-byte untouched), letting `discover-ai.js`
+   maintain two fully independent daily pools: `ai_usage_discover_translate` (20/day) and
+   `ai_usage_discover_recommend` (10/day), each with its own 5/60s and 3/60s `checkBurst()` key
+   prefix (`discover-translate:`/`discover-recommend:`) — verified never to share state with each
+   other, with `assistant.js`'s own bare-uid burst key, or with `anilist.js`'s `anilist:`-prefixed
+   one. None of the three `ai_usage*` collections has an explicit `firestore.rules` entry —
+   Firestore's default-deny already closes client access to all of them without any rules change
+   (confirmed by reading the file, not assumed).
+5. **`discover.js`/`discover.html`** — a third `view-tab`, **For You**
+   (`#foryou-view`/`#foryou-grid`/etc.), reusing the existing `mediaCard()`/`renderCardActions()`
+   Plan to Watch flow unchanged. Never loads on page init or on an ordinary tab re-visit
+   (`forYouLoadedOnce` mirrors `discoverCache`'s own "don't re-fetch an already-visited subtab"
+   precedent); Refresh always passes `force:true`; a successful Plan to Watch from a For You card
+   filters that title out of `forYouResults` immediately, without a refetch. The detail modal
+   gains `handleTranslateClick()`/`renderTranslationControls()` — a `modalTranslationState`
+   (idle/loading/error, `showingTranslated`) reset only by a genuinely new `openDetailModal()`
+   call, **not** by an `eden:langchange` re-render, so switching the app's UI language never
+   discards an already-fetched translation or spends a second Qwen call (only the button labels
+   re-render). The client-side translation cache is **localStorage only for v1, no Firestore
+   collection** (`eden:discoverTranslations`, pruned to 100 entries by insertion order — not by
+   re-sorting on `Date.now()`, which a synthetic 110-entries-in-one-tick stress test proved isn't
+   fine-grained enough to break ties reliably), keyed by `(anilistId, targetLang, sourceHash,
+   TRANSLATION_POLICY_VERSION)` so a changed description or a bumped policy version always forces
+   a fresh request. `sha256Hex()` uses the browser's real `crypto.subtle.digest` (no polyfill) —
+   proven to match the server's `canonicalizeDescription()`+Node `crypto` hash byte-for-byte via a
+   shared fixture file, `netlify/functions/__tests__/fixtures/description-fixtures.json`, read
+   independently by both the backend and frontend test suites. All AI-sourced text (translated
+   description, recommendation reasons) is rendered via `.textContent` only, matching this file's
+   pre-existing description-rendering discipline — proven with an actual `<script>`-payload
+   end-to-end DOM test, not just a source-pattern check.
+6. **A real bug caught by the test suite before it shipped, not a synthetic demonstration**:
+   `sha256Hex()` returns a bare hex digest, but the server's `sourceHash` (and thus every saved
+   cache entry) is `"sha256:<hex>"`-prefixed — the client was comparing the two directly, so
+   `getCachedTranslation()` could **never** produce a hit, silently defeating the entire
+   localStorage cache (every Translate click, even for an already-cached, unchanged description,
+   would have re-spent a Qwen call and a slot of the 20/day quota). Caught while writing
+   `js/__tests__/discover-translate.test.js`'s "a second Translate click never calls the network
+   again" test; fixed by prefixing the client hash the same way the server does. Verified with an
+   actual before/after run: the test fails against the unprefixed version (confirmed, not assumed)
+   and passes once fixed — the same discipline applied to `lib/rate-limit.js`'s independent-quota-
+   pools tests (regressed against the pre-fix version, confirmed 4 tests fail) and the
+   `selectValidRecommendations()` allowlist tests (regressed against a deliberately weakened
+   version, confirmed 5 tests fail).
+7. **Tests**: `netlify/functions/__tests__/discover-ai.test.js` (92 assertions — Owner-only
+   enforcement, CORS/Deploy-Preview handling, both operations' full validation/error/timeout/no-
+   retry/rate-limit/cache matrices, the independent-quota-pool proof, the cross-runtime source-hash
+   fixture agreement, and service-worker precache/cache-version checks) plus three frontend
+   suites: `js/__tests__/discover-foryou.test.js` (13 — load-on-init-never, exactly-one-request-on-
+   first-click, tab-revisit cache reuse, Refresh force:true, Retry force:false, rate-limited vs.
+   generic error states, `eden:langchange` never refetching, Plan-to-Watch card removal, keyboard/
+   focus) and `js/__tests__/discover-translate.test.js` (21 — the localStorage cache's shape
+   validation/pruning/policy-version invalidation, the cross-runtime fixture proof, the modal
+   Translate/View Original/View Translation state machine, the `<script>`-payload DOM proof,
+   keyboard/focus) — both built on the same real-`discover.html`-into-jsdom, real-extracted-
+   discover.js-functions harness technique `js/__tests__/discover-tabs.test.js` already
+   established. `js/__tests__/discover-description.test.js` (pre-existing, PR #8) needed updating
+   for `renderAnimeDescription()`'s new `renderTranslationControls()`/`modalTranslationState`
+   dependency — two assertions that used a bare `querySelector("button")` were rescoped to
+   `.description-toggle-btn` specifically, since a real description now legitimately shows two
+   buttons (Show more/less + Translate), not one; no assertion was weakened, only correctly scoped
+   to what it always meant. `package.json`'s `test:functions`/`test:frontend` chains and
+   `scripts/__tests__/tailwind-migration.test.js`'s pinned command-list check both updated per this
+   repo's established "fold the prior pass's newest addition into the baseline, append the new
+   one" convention. `service-worker.js` `CACHE` → `eden-shell-v36` (from v35 — `discover.js`
+   changed; `discover.html`/`discover.js` were already in `PRECACHE` from PR #8, no new entries
+   needed). Verification run individually, not inferred from one combined command: `npm run build`
+   (57 files + 3 directories, clean), `npm run test:functions` (384: 160+37+95+92), `npm run
+   test:frontend` (201: 9+18+15+33+10+41+11+30+13+21), `npm run test:firestore-rules` (29/29, real
+   emulator — unaffected, `firestore.rules` was never touched this pass), `npm run
+   test:tailwind-migration` (23/23).
+8. **Explicitly not part of this pass**: no `firestore.rules`/`storage.rules` change (none was
+   needed — `followed_anime` is read-only from this Function's perspective, and the new `ai_usage*`
+   collections are already closed by Firestore's default-deny); no new Netlify environment
+   variable (reuses `DASHSCOPE_API_KEY`/`QWEN_MODEL`/`QWEN_BASE_URL`/`FIREBASE_PROJECT_ID`/
+   `FIREBASE_SERVICE_ACCOUNT`/`ALLOWED_ORIGIN` unchanged); no new nav entry (For You lives inside
+   the existing `discover.html`, which was already in the Owner-only nav arrays); nothing merged,
+   deployed, or pushed by this pass — see the completion report handed to the user for the
+   Deploy-Preview verification and remaining live-QA checklist.
+
 ## Architecture
 
 ### Roles and the multi-tenant data model
 
-- **Three roles, decided once at login and cached in `localStorage`** (`lfj:userMode` = `OWNER`/`FRIEND`/`VIEWER`, see [firebase-init.js](firebase-init.js)'s `getUserMode()`/`canParticipate()`): **Owner** (`jjun8647@gmail.com`, hardcoded) has full access everywhere and is the only role that sees admin UI (System Logs, Whitelist Management — now in Me's Connections/System Logs tabs, v2.7). **Friend** (an entry in `friends/{email}`, see below) gets their own space for Memories/Journal/Journey/Habits/Atlas/Collections/Calendar — structurally identical to the owner's for those modules, just their own `uid`. As of **v3.3**, Finance/Time Capsule/Daily Reflection are Owner-only regardless of Friend status (`firestore.rules`' `expenses`/`time_capsules`/`daily_reflections` `create` rules require `isOwner()`, not `canParticipate()`) — a Friend's own pre-v3.3 docs in those collections, if any, remain readable/editable, but no new ones can be created. **Discover** (`discover.html`/`followed_anime`, the anime tracker) is Owner-only end to end from its first release — unlike Finance/Time Capsule/Daily Reflection, it was never Friend-available at any point, so there is no pre-existing-Friend-doc grandfathering concern for it. **Viewer** (anyone else who signs in with Google) is read-only: sees public content from the owner and any friend, can like/comment on public gallery posts, but cannot create anything of their own (`canParticipate()` is false, so every "New X" button stays hidden and the Firestore rules would reject the write anyway). Nobody is ever signed out or blocked at login — this deliberately diverges from an earlier draft spec that wanted to bounce non-whitelisted users; the actual product decision is "let anyone in, public-only until promoted." **This role system is entirely separate from v3.2's peer-to-peer friend graph** (`friend_requests`/`friendships`, below) — role decides CRUD permissions and which profiles are even discoverable at all; the friend graph decides, independently, whether `visibility: "connections"` content is shown once a profile *is* reachable. `js/sidebar.js`/`js/mobile-nav.js` (v3.2) also read this same role to decide Owner-vs-Light navigation — see the Pages/Conventions bullets below.
+- **Three roles, decided once at login and cached in `localStorage`** (`lfj:userMode` = `OWNER`/`FRIEND`/`VIEWER`, see [firebase-init.js](firebase-init.js)'s `getUserMode()`/`canParticipate()`): **Owner** (`jjun8647@gmail.com`, hardcoded) has full access everywhere and is the only role that sees admin UI (System Logs, Whitelist Management — now in Me's Connections/System Logs tabs, v2.7). **Friend** (an entry in `friends/{email}`, see below) gets their own space for Memories/Journal/Journey/Habits/Atlas/Collections/Calendar — structurally identical to the owner's for those modules, just their own `uid`. As of **v3.3**, Finance/Time Capsule/Daily Reflection are Owner-only regardless of Friend status (`firestore.rules`' `expenses`/`time_capsules`/`daily_reflections` `create` rules require `isOwner()`, not `canParticipate()`) — a Friend's own pre-v3.3 docs in those collections, if any, remain readable/editable, but no new ones can be created. **Discover** (`discover.html`/`followed_anime`, the anime tracker, plus its Qwen-powered Translate/For You additions served from the separate `netlify/functions/discover-ai.js` Function) is Owner-only end to end from its first release — unlike Finance/Time Capsule/Daily Reflection, it was never Friend-available at any point, so there is no pre-existing-Friend-doc grandfathering concern for it. **Viewer** (anyone else who signs in with Google) is read-only: sees public content from the owner and any friend, can like/comment on public gallery posts, but cannot create anything of their own (`canParticipate()` is false, so every "New X" button stays hidden and the Firestore rules would reject the write anyway). Nobody is ever signed out or blocked at login — this deliberately diverges from an earlier draft spec that wanted to bounce non-whitelisted users; the actual product decision is "let anyone in, public-only until promoted." **This role system is entirely separate from v3.2's peer-to-peer friend graph** (`friend_requests`/`friendships`, below) — role decides CRUD permissions and which profiles are even discoverable at all; the friend graph decides, independently, whether `visibility: "connections"` content is shown once a profile *is* reachable. `js/sidebar.js`/`js/mobile-nav.js` (v3.2) also read this same role to decide Owner-vs-Light navigation — see the Pages/Conventions bullets below.
 - **The core query pattern, used identically across `gallery.js`, `journal.js`, `timeline.js`, `habits.js`**: two Firestore queries merged by doc ID — `where("uid","==",myUid)` (all of *my own* docs, any visibility) plus `where("visibility","==","public")` (everyone's public docs) — deduped into a `Map` keyed by `doc.id` so a doc that's both mine and public isn't double-counted. This replaced the old v1.2 "public query + private query" pattern, which relied on a blanket `where("visibility","==","private")` query that the new per-uid rules would reject outright (the rules engine can't confirm an unfiltered "give me all private docs" query only returns the caller's own — Firestore requires the query itself to be provably scoped). **`expenses` is the one exception**: it has no public/private concept at all anymore (financial data, always private), so `expenses.js`/`dashboard.js`/`export.js`/`calendar.js`/`insights.js` all just do a single `where("uid","==",myUid)` query with no public half.
 - **Every write is gated by `canParticipate()`** (owner or friend) instead of the old `isOwner(user)` — `gallery.js`'s "New Post", `expenses.js`'s "Add Expense", `journal.js`'s "New Entry", `timeline.js`'s "New Event", and `habits.js`'s "New Habit" all switched from owner-only to participant-only. Every new doc is written with `uid: auth.currentUser.uid` (not a hardcoded owner reference), and per-post/per-item "is this mine" checks (e.g. gallery's Analytics-panel visibility, habits' check-in button) compare against `item.uid === auth.currentUser.uid`, not a global `isOwner()` call — ownership is now per-document, not site-wide.
 - **[firestore.rules](firestore.rules)** defines the shared helpers `isOwner()`, `isFriend()` (checks `exists(friends/{email})` — the legacy whitelist-role check), `canParticipate()` (owner or friend — who may `create` in a participatory collection), and `isMineOrPublic(data)` (the read condition shared by `journals`/`life_events`/`habits`/`photos`/`collections`: `data.uid == request.auth.uid || data.visibility == 'public' || (data.visibility == 'connections' && isAcceptedFriend(data.uid))`, the last clause added in v3.2). `expenses`/`goals`/`time_capsules`/`daily_reflections` skip `isMineOrPublic` and just check `resource.data.uid == request.auth.uid` for read/update/delete, full stop — never touched by the `connections` tier. Their `create` rules differ since v3.3: `goals` stays `canParticipate()` (Owner or Friend), while `expenses`/`time_capsules`/`daily_reflections` require `isOwner()` — see the "EdenAtlas v3.3" history bullet above. `photos/{id}/likes`, `/comments`, `/views` reuse a `canReadPost(photoId)` helper (subcollection rules never inherit from the parent `match` block, so these need their own explicit blocks) — likes/comments are open to any signed-in user who can read the post (liking isn't "participating" in the personal-data sense), views stay create-only for the viewer and read-only for the post's own `uid`. `usernames/{username}` (new in v3.1) is a `create`-only, no-`update` collection — Firestore's create-vs-update distinction (a `create` rule only fires when no doc with that ID exists) makes "first writer claims the handle" fall out for free, no transaction or Cloud Function needed; its `read` rule is world-open (`if true`, since v3.2.2 — was auth-required), as is the new `public_profiles/{uid}` collection's, since neither ever holds anything sensitive (`public_profiles` is a denormalized `users/{uid}` mirror with `email` deliberately excluded) — both exist to let an unauthenticated `resume.html?u=...` visitor resolve a handle/owner-lookup without needing to read the auth-required, email-bearing `users/{uid}`. `career_experiences`/`career_projects`/`career_certificates`/`career_awards`' read rule is `isCareerReadable(data)` (v3.2.2): `data.visibility == 'public' || isMineOrPublic(data)` — the one place in this app where a `public` doc is readable with **no** `request.auth` requirement at all, since Career is the one collection meant to support an unauthenticated HR visitor. **`friend_requests/{toUid}/incoming/{fromUid}` and `friendships/{uid}/friends/{friendUid}`** (v3.2) back the mutual-consent friend graph — see the "EdenAtlas v3.2" history bullet above for the full rule shapes and why the accept flow needs no transaction; `isAcceptedFriend(ownerUid)` is the helper `isMineOrPublic()` calls, deliberately named apart from `isFriend()` to avoid shadowing the whitelist check. `notifications`' create rule has one narrow cross-uid exception for `friend_request`/`friend_accepted` types only (self-attested via `fromUid`).
