@@ -36,9 +36,20 @@ function _resetBurstStateForTests() {
   burstState.clear();
 }
 
-async function checkAndIncrementDailyUsage(db, uid, { limit = DAILY_LIMIT, now = new Date() } = {}) {
+// `collectionName` (Discover AI pass) lets a caller land its daily counter in a DIFFERENT
+// Firestore collection than the Atlas Assistant's own `ai_usage` — defaults to `"ai_usage"`
+// unchanged, so assistant.js's existing call site (which never passes this option) keeps hitting
+// exactly the collection/doc-id shape it always has, with the exact same DAILY_LIMIT=50 default,
+// byte-for-byte. This is what lets netlify/functions/discover-ai.js maintain two ADDITIONAL,
+// fully independent daily pools (`ai_usage_discover_translate`, `ai_usage_discover_recommend`)
+// without the three ever sharing a counter, while changing zero behavior for the Assistant's own
+// pool. None of these collection names have an explicit firestore.rules entry (verified by
+// reading the file, not assumed) — Firestore's Security Rules default-deny any path with no
+// matching `match` block, so client access to any `ai_usage*` collection is already closed
+// without a rules change, for the original collection and every new one alike.
+async function checkAndIncrementDailyUsage(db, uid, { limit = DAILY_LIMIT, now = new Date(), collectionName = "ai_usage" } = {}) {
   const dayKey = now.toISOString().slice(0, 10);
-  const ref = db.collection("ai_usage").doc(`${uid}_${dayKey}`);
+  const ref = db.collection(collectionName).doc(`${uid}_${dayKey}`);
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const current = snap.exists ? Number(snap.data().count || 0) : 0;
